@@ -6,6 +6,7 @@ import Auth from './pages/Auth'
 import Home from './pages/Home'
 import Datasets from './pages/Datasets'
 import Analysis from './pages/Analysis'
+import DataFusion from './pages/DataFusion'
 import Profile from './pages/Profile'
 import Settings from './pages/Settings'
 import Navigation from './components/Navigation'
@@ -73,6 +74,7 @@ function App() {
         <Route path="/" element={isSignedIn ? <Home /> : <Navigate to="/auth" />} />
         <Route path="/datasets" element={isSignedIn ? <Datasets /> : <Navigate to="/auth" />} />
         <Route path="/analysis" element={isSignedIn ? <Analysis /> : <Navigate to="/auth" />} />
+        <Route path="/fusion" element={isSignedIn ? <DataFusion /> : <Navigate to="/auth" />} />
         <Route path="/profile" element={isSignedIn ? <Profile /> : <Navigate to="/auth" />} />
         <Route path="/settings" element={isSignedIn ? <Settings /> : <Navigate to="/auth" />} />
         <Route path="*" element={<Navigate to={isSignedIn ? "/" : "/auth"} />} />

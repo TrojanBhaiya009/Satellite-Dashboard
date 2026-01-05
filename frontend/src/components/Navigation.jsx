@@ -64,6 +64,16 @@ function Navigation() {
             >
               Analysis
             </Link>
+            <Link
+              to="/fusion"
+              className={`px-4 py-2 rounded-lg font-medium transition ${
+                isActive('/fusion') 
+                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50' 
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              Data Fusion
+            </Link>
           </div>
 
           {/* User Menu */}
