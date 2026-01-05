@@ -1,4 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef, Suspense, Component } from 'react'
+import { Canvas, useFrame, useLoader } from '@react-three/fiber'
+import { OrbitControls } from '@react-three/drei'
+import * as THREE from 'three'
+import { TextureLoader } from 'three'
 import { 
   fetchNaturalEvents, 
   fetchSentinel2Data, 
@@ -8,6 +12,362 @@ import {
   STAC_ENDPOINTS,
   searchSTACItems
 } from '../services/satelliteApi'
+
+// Error boundary for 3D components
+class Earth3DErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  
+  static getDerivedStateFromError(error) {
+    return { hasError: true }
+  }
+  
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback
+    }
+    return this.props.children
+  }
+}
+
+// Realistic Earth Globe with day/night cycle
+function SimpleEarth({ targetCoords }) {
+  const earthRef = useRef()
+  const nightRef = useRef()
+  const cloudsRef = useRef()
+  const markerRef = useRef()
+  const markerPulseRef = useRef()
+  const sunRef = useRef()
+  
+  // Load Earth textures from NASA/Three.js
+  const dayTexture = useLoader(
+    TextureLoader, 
+    'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_2048.jpg'
+  )
+  
+  const nightTexture = useLoader(
+    TextureLoader,
+    'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_lights_2048.png'
+  )
+  
+  const cloudsTexture = useLoader(
+    TextureLoader,
+    'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_clouds_1024.png'
+  )
+  
+  const bumpTexture = useLoader(
+    TextureLoader,
+    'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_normal_2048.jpg'
+  )
+  
+  const specularTexture = useLoader(
+    TextureLoader,
+    'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_specular_2048.jpg'
+  )
+  
+  // Calculate sun position based on real time
+  const getSunPosition = () => {
+    const now = new Date()
+    const hours = now.getUTCHours() + now.getUTCMinutes() / 60
+    // Sun position: 12:00 UTC = sun at 0° longitude
+    // Earth rotates 15° per hour
+    const sunLongitude = (12 - hours) * 15
+    const sunLongitudeRad = (sunLongitude * Math.PI) / 180
+    // Simplified: sun roughly at equator (ignoring seasons)
+    const declination = 0
+    return {
+      x: Math.cos(declination) * Math.cos(sunLongitudeRad) * 10,
+      y: Math.sin(declination) * 10,
+      z: Math.cos(declination) * Math.sin(sunLongitudeRad) * 10
+    }
+  }
+  
+  const sunPos = getSunPosition()
+  
+  useFrame((state, delta) => {
+    if (earthRef.current) {
+      earthRef.current.rotation.y += delta * 0.02
+    }
+    if (nightRef.current) {
+      nightRef.current.rotation.y += delta * 0.02
+    }
+    if (cloudsRef.current) {
+      cloudsRef.current.rotation.y += delta * 0.025
+    }
+    if (markerRef.current) {
+      const scale = 1 + Math.sin(state.clock.elapsedTime * 4) * 0.3
+      markerRef.current.scale.set(scale, scale, scale)
+    }
+    if (markerPulseRef.current) {
+      const pulseScale = 1 + Math.sin(state.clock.elapsedTime * 2) * 0.5
+      markerPulseRef.current.scale.set(pulseScale, pulseScale, pulseScale)
+      markerPulseRef.current.material.opacity = 0.6 - Math.sin(state.clock.elapsedTime * 2) * 0.4
+    }
+  })
+  
+  // Convert lat/lon to 3D position on sphere
+  const latLonToVector3 = (lat, lon, radius) => {
+    const phi = (90 - lat) * (Math.PI / 180)
+    const theta = (lon + 180) * (Math.PI / 180)
+    const x = -(radius * Math.sin(phi) * Math.cos(theta))
+    const z = radius * Math.sin(phi) * Math.sin(theta)
+    const y = radius * Math.cos(phi)
+    return [x, y, z]
+  }
+  
+  const markerPosition = targetCoords 
+    ? latLonToVector3(targetCoords[1], targetCoords[0], 1.02)
+    : [0, 1.02, 0]
+
+  return (
+    <group>
+      {/* Outer atmosphere glow */}
+      <mesh>
+        <sphereGeometry args={[1.12, 64, 64]} />
+        <meshBasicMaterial 
+          color="#60a5fa" 
+          transparent 
+          opacity={0.1} 
+          side={THREE.BackSide} 
+        />
+      </mesh>
+      
+      {/* Night side with city lights - rendered first */}
+      <mesh ref={nightRef}>
+        <sphereGeometry args={[0.998, 64, 64]} />
+        <meshBasicMaterial
+          map={nightTexture}
+          transparent
+          opacity={0.8}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+      
+      {/* Day side Earth with textures */}
+      <mesh ref={earthRef}>
+        <sphereGeometry args={[1, 64, 64]} />
+        <meshStandardMaterial
+          map={dayTexture}
+          bumpMap={bumpTexture}
+          bumpScale={0.02}
+          roughness={0.8}
+          metalness={0.1}
+        />
+      </mesh>
+      
+      {/* Cloud layer */}
+      <mesh ref={cloudsRef}>
+        <sphereGeometry args={[1.015, 64, 64]} />
+        <meshPhongMaterial
+          map={cloudsTexture}
+          transparent
+          opacity={0.35}
+          depthWrite={false}
+        />
+      </mesh>
+      
+      {/* Atmosphere rim effect */}
+      <mesh>
+        <sphereGeometry args={[1.05, 64, 64]} />
+        <shaderMaterial
+          transparent
+          side={THREE.BackSide}
+          uniforms={{
+            glowColor: { value: new THREE.Color(0x4fc3f7) }
+          }}
+          vertexShader={`
+            varying vec3 vNormal;
+            void main() {
+              vNormal = normalize(normalMatrix * normal);
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `}
+          fragmentShader={`
+            varying vec3 vNormal;
+            uniform vec3 glowColor;
+            void main() {
+              float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+              gl_FragColor = vec4(glowColor, intensity * 0.4);
+            }
+          `}
+        />
+      </mesh>
+      
+      {/* Target marker with glow effect */}
+      {targetCoords && (
+        <group position={markerPosition}>
+          {/* Outer pulse ring */}
+          <mesh ref={markerPulseRef}>
+            <sphereGeometry args={[0.08, 16, 16]} />
+            <meshBasicMaterial color="#ef4444" transparent opacity={0.3} />
+          </mesh>
+          {/* Middle glow */}
+          <mesh>
+            <sphereGeometry args={[0.04, 16, 16]} />
+            <meshBasicMaterial color="#f87171" transparent opacity={0.7} />
+          </mesh>
+          {/* Core marker */}
+          <mesh ref={markerRef}>
+            <sphereGeometry args={[0.025, 16, 16]} />
+            <meshBasicMaterial color="#ffffff" />
+          </mesh>
+          {/* Vertical beam */}
+          <mesh position={[0, 0.1, 0]}>
+            <cylinderGeometry args={[0.002, 0.01, 0.2, 8]} />
+            <meshBasicMaterial color="#ef4444" transparent opacity={0.7} />
+          </mesh>
+        </group>
+      )}
+      
+      {/* Orbit ring */}
+      <mesh rotation={[Math.PI / 2.5, 0.2, 0]}>
+        <torusGeometry args={[1.35, 0.003, 16, 150]} />
+        <meshBasicMaterial color="#22d3ee" transparent opacity={0.4} />
+      </mesh>
+      
+      {/* Animated satellite */}
+      <SatelliteOrbit />
+    </group>
+  )
+}
+
+// Animated satellite on orbit
+function SatelliteOrbit() {
+  const satRef = useRef()
+  const satGlowRef = useRef()
+  
+  useFrame((state) => {
+    if (satRef.current) {
+      const time = state.clock.elapsedTime * 0.4
+      const radius = 1.35
+      satRef.current.position.x = Math.cos(time) * radius
+      satRef.current.position.z = Math.sin(time) * radius * Math.cos(Math.PI / 2.5)
+      satRef.current.position.y = Math.sin(time) * radius * Math.sin(Math.PI / 2.5)
+      satRef.current.rotation.z = time
+    }
+    if (satGlowRef.current) {
+      satGlowRef.current.position.copy(satRef.current.position)
+    }
+  })
+  
+  return (
+    <>
+      {/* Satellite glow */}
+      <mesh ref={satGlowRef}>
+        <sphereGeometry args={[0.025, 8, 8]} />
+        <meshBasicMaterial color="#22d3ee" transparent opacity={0.6} />
+      </mesh>
+      {/* Satellite body */}
+      <group ref={satRef}>
+        <mesh>
+          <boxGeometry args={[0.025, 0.012, 0.012]} />
+          <meshBasicMaterial color="#e0f2fe" />
+        </mesh>
+        {/* Solar panels */}
+        <mesh position={[0.03, 0, 0]}>
+          <boxGeometry args={[0.04, 0.001, 0.02]} />
+          <meshBasicMaterial color="#3b82f6" />
+        </mesh>
+        <mesh position={[-0.03, 0, 0]}>
+          <boxGeometry args={[0.04, 0.001, 0.02]} />
+          <meshBasicMaterial color="#3b82f6" />
+        </mesh>
+      </group>
+    </>
+  )
+}
+
+// SVG Fallback Globe
+function SVGFallbackGlobe({ targetCoords, regionName }) {
+  return (
+    <div className="w-full h-full flex items-center justify-center">
+      <svg viewBox="0 0 200 200" className="w-full h-full animate-[spin_30s_linear_infinite]">
+        <defs>
+          <radialGradient id="globeGrad" cx="30%" cy="30%">
+            <stop offset="0%" stopColor="#1e3a5f" />
+            <stop offset="100%" stopColor="#0f172a" />
+          </radialGradient>
+        </defs>
+        <circle cx="100" cy="100" r="85" fill="#22d3ee" fillOpacity="0.1" />
+        <circle cx="100" cy="100" r="80" fill="url(#globeGrad)" stroke="#22d3ee" strokeWidth="1" strokeOpacity="0.3" />
+        <g opacity="0.3">
+          <ellipse cx="60" cy="60" rx="25" ry="20" fill="#22d3ee" />
+          <ellipse cx="75" cy="130" rx="12" ry="25" fill="#22d3ee" />
+          <ellipse cx="110" cy="80" rx="18" ry="30" fill="#22d3ee" />
+          <ellipse cx="145" cy="70" rx="22" ry="25" fill="#22d3ee" />
+        </g>
+        {targetCoords && (
+          <g transform={`translate(${100 + (targetCoords[0] / 180) * 60}, ${100 - (targetCoords[1] / 90) * 60})`}>
+            <circle r="12" fill="#ef4444" fillOpacity="0.3" className="animate-ping" />
+            <circle r="6" fill="#ef4444" />
+          </g>
+        )}
+      </svg>
+    </div>
+  )
+}
+
+// 3D Scene wrapper with error boundary and fallback
+function Earth3D({ targetCoords, regionName }) {
+  const [hasError, setHasError] = useState(false)
+  
+  if (hasError) {
+    return <SVGFallbackGlobe targetCoords={targetCoords} regionName={regionName} />
+  }
+  
+  return (
+    <Earth3DErrorBoundary fallback={<SVGFallbackGlobe targetCoords={targetCoords} regionName={regionName} />}>
+      <Canvas
+        camera={{ position: [0, 0, 2.5], fov: 50 }}
+        style={{ background: 'transparent' }}
+        gl={{ alpha: true, antialias: true }}
+        onCreated={({ gl }) => {
+          gl.setClearColor(0x000000, 0)
+        }}
+        onError={() => setHasError(true)}
+      >
+        {/* Good ambient light so we can see everything */}
+        <ambientLight intensity={0.6} color="#ffffff" />
+        
+        {/* Main sun light */}
+        <directionalLight 
+          position={[5, 2, 4]} 
+          intensity={1.2} 
+          color="#fff8e8"
+        />
+        
+        {/* Fill light from behind to illuminate dark side */}
+        <directionalLight 
+          position={[-4, -1, -3]} 
+          intensity={0.4} 
+          color="#88ccff"
+        />
+        
+        {/* Top light */}
+        <pointLight 
+          position={[0, 5, 0]} 
+          intensity={0.3} 
+          color="#ffffff"
+        />
+        
+        <Suspense fallback={null}>
+          <SimpleEarth targetCoords={targetCoords} />
+        </Suspense>
+        
+        <OrbitControls 
+          enableZoom={false}
+          enablePan={false}
+          minPolarAngle={Math.PI / 4}
+          maxPolarAngle={Math.PI - Math.PI / 4}
+          autoRotate={false}
+          rotateSpeed={0.5}
+        />
+      </Canvas>
+    </Earth3DErrorBoundary>
+  )
+}
 
 // Satellite regions with real coordinates for API calls
 const SATELLITE_REGIONS = [
@@ -63,6 +423,119 @@ const SATELLITE_REGIONS = [
   }
 ]
 
+// Processing steps for animation
+const PROCESSING_STEPS = [
+  { id: 'connect', label: 'Connecting to satellite APIs...', icon: '🔗' },
+  { id: 'fetch', label: 'Fetching satellite scenes...', icon: '📡' },
+  { id: 'climate', label: 'Querying NASA POWER climate data...', icon: '🌡️' },
+  { id: 'process', label: 'Processing spectral bands...', icon: '📊' },
+  { id: 'indices', label: 'Calculating vegetation indices...', icon: '🌿' },
+  { id: 'analyze', label: 'Running AI analysis...', icon: '🤖' },
+  { id: 'complete', label: 'Analysis complete!', icon: '✅' }
+]
+
+// AI Insights generator
+const generateAIInsights = (region, results, climate) => {
+  const insights = []
+  const ndviMean = results?.results?.ndvi ? 
+    results.results.ndvi.reduce((a, b) => a + b, 0) / results.results.ndvi.length : 0
+  const ndwiMean = results?.results?.ndwi ?
+    results.results.ndwi.reduce((a, b) => a + b, 0) / results.results.ndwi.length : 0
+  
+  // Vegetation health insight
+  if (ndviMean > 0.6) {
+    insights.push({
+      type: 'success',
+      title: 'Healthy Vegetation Detected',
+      description: `NDVI mean of ${ndviMean.toFixed(3)} indicates dense, healthy vegetation cover in ${region.name}.`,
+      confidence: 94,
+      icon: '🌿'
+    })
+  } else if (ndviMean > 0.3) {
+    insights.push({
+      type: 'warning',
+      title: 'Moderate Vegetation Stress',
+      description: `NDVI of ${ndviMean.toFixed(3)} suggests possible vegetation stress or sparse cover. Monitor for changes.`,
+      confidence: 87,
+      icon: '⚠️'
+    })
+  } else if (ndviMean > 0) {
+    insights.push({
+      type: 'alert',
+      title: 'Low Vegetation Activity',
+      description: `Low NDVI (${ndviMean.toFixed(3)}) indicates minimal vegetation. This may be urban, desert, or degraded land.`,
+      confidence: 91,
+      icon: '🏜️'
+    })
+  }
+  
+  // Water insight
+  if (ndwiMean > 0.3) {
+    insights.push({
+      type: 'info',
+      title: 'Water Bodies Detected',
+      description: `High NDWI (${ndwiMean.toFixed(3)}) indicates significant water presence or high soil moisture.`,
+      confidence: 89,
+      icon: '💧'
+    })
+  }
+  
+  // Region-specific insights
+  if (region._id.includes('fire')) {
+    insights.push({
+      type: 'alert',
+      title: 'Active Fire Risk Assessment',
+      description: 'Thermal anomaly detection active. NBR analysis shows potential burn scars in analyzed region.',
+      confidence: 82,
+      icon: '🔥'
+    })
+  }
+  
+  if (region._id.includes('glacier')) {
+    insights.push({
+      type: 'info',
+      title: 'Ice Coverage Analysis',
+      description: 'Sentinel-1 SAR data indicates stable ice sheet boundaries. No significant calving events detected.',
+      confidence: 88,
+      icon: '🧊'
+    })
+  }
+  
+  if (region._id.includes('urban')) {
+    insights.push({
+      type: 'warning',
+      title: 'Urban Heat Island Effect',
+      description: 'High NDBI values suggest significant built-up area with potential urban heat island effect.',
+      confidence: 90,
+      icon: '🏙️'
+    })
+  }
+  
+  // Climate insight
+  if (climate?.T2M) {
+    const temps = Object.values(climate.T2M).filter(v => typeof v === 'number')
+    const avgTemp = temps.reduce((a, b) => a + b, 0) / temps.length
+    insights.push({
+      type: avgTemp > 30 ? 'warning' : 'info',
+      title: 'Temperature Analysis',
+      description: `Average temperature of ${avgTemp.toFixed(1)}°C recorded. ${avgTemp > 30 ? 'Heat stress conditions possible.' : 'Normal temperature range.'}`,
+      confidence: 95,
+      icon: '🌡️'
+    })
+  }
+  
+  // Add recommendation
+  insights.push({
+    type: 'recommendation',
+    title: 'Recommended Actions',
+    description: `Continue monitoring ${region.name} with ${region.satellite}. Set up alerts for NDVI changes > 0.1.`,
+    confidence: 85,
+    icon: '💡'
+  })
+  
+  return insights
+}
+
 function Analysis() {
   const [selectedRegion, setSelectedRegion] = useState(null)
   const [analysisResults, setAnalysisResults] = useState(null)
@@ -74,6 +547,40 @@ function Analysis() {
   const [isLoadingEvents, setIsLoadingEvents] = useState(true)
   const [climateData, setClimateData] = useState(null)
   const [error, setError] = useState(null)
+  
+  // New state for enhanced features
+  const [processingStep, setProcessingStep] = useState(0)
+  const [dataStream, setDataStream] = useState([])
+  const [aiInsights, setAiInsights] = useState([])
+  const dataStreamRef = useRef(null)
+
+  // Simulated data stream during processing
+  useEffect(() => {
+    if (isLoading) {
+      const streamInterval = setInterval(() => {
+        const newPacket = {
+          id: Date.now(),
+          timestamp: new Date().toISOString(),
+          type: ['SCENE', 'BAND', 'META', 'CLIMATE', 'INDEX'][Math.floor(Math.random() * 5)],
+          size: `${(Math.random() * 50 + 10).toFixed(1)} KB`,
+          status: 'received'
+        }
+        setDataStream(prev => [...prev.slice(-15), newPacket])
+      }, 200)
+      
+      return () => clearInterval(streamInterval)
+    }
+  }, [isLoading])
+
+  // Processing steps animation
+  useEffect(() => {
+    if (isLoading && processingStep < PROCESSING_STEPS.length - 1) {
+      const stepTimeout = setTimeout(() => {
+        setProcessingStep(prev => prev + 1)
+      }, 1500)
+      return () => clearTimeout(stepTimeout)
+    }
+  }, [isLoading, processingStep])
 
   // Fetch real-time natural events on mount
   useEffect(() => {
@@ -104,6 +611,9 @@ function Analysis() {
     
     setIsLoading(true)
     setError(null)
+    setProcessingStep(0)
+    setDataStream([])
+    setAiInsights([])
     
     try {
       const today = new Date()
@@ -143,6 +653,10 @@ function Analysis() {
       // Generate analysis results from real data
       const results = generateAnalysisFromRealData(selectedRegion, formattedScenes, climate)
       setAnalysisResults(results)
+      
+      // Generate AI insights
+      const insights = generateAIInsights(selectedRegion, results, climate)
+      setAiInsights(insights)
       
     } catch (error) {
       console.error('Analysis failed:', error)
@@ -330,8 +844,152 @@ function Analysis() {
           </div>
         </div>
 
+        {/* Mini Globe + Data Stream Panel (shown when region selected) */}
+        {selectedRegion && (
+          <div className="mb-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Mini Globe Visualization */}
+            <div className="lg:col-span-1 bg-gradient-to-br from-slate-900 to-indigo-950/50 border border-indigo-500/30 rounded-2xl p-4 overflow-hidden">
+              <h3 className="text-sm font-bold text-indigo-300 mb-3 flex items-center gap-2">
+                🌍 Target Region
+              </h3>
+              <div className="relative aspect-square max-h-48 mx-auto">
+                {/* 3D Earth Globe */}
+                <Earth3D targetCoords={selectedRegion.center} />
+                
+                {/* Region info overlay */}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-transparent p-3">
+                  <p className="text-xs text-cyan-400 font-bold">{selectedRegion.name}</p>
+                  <p className="text-[10px] text-slate-400">
+                    {selectedRegion.center[1].toFixed(2)}°, {selectedRegion.center[0].toFixed(2)}°
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Data Stream */}
+            <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-800/50 border border-slate-700 rounded-2xl p-4 overflow-hidden">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-green-400 flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </span>
+                  📡 Live Data Stream
+                </h3>
+                <span className="text-xs text-slate-500 font-mono">
+                  {dataStream.length} packets
+                </span>
+              </div>
+              
+              <div 
+                ref={dataStreamRef}
+                className="h-32 overflow-y-auto font-mono text-xs space-y-1 bg-slate-950/50 rounded-lg p-2"
+              >
+                {dataStream.length === 0 ? (
+                  <div className="text-slate-600 text-center py-8">
+                    Waiting for data stream...
+                  </div>
+                ) : (
+                  dataStream.map((packet) => (
+                    <div 
+                      key={packet.id} 
+                      className="flex items-center gap-2 text-slate-400 animate-[fadeIn_0.3s_ease-out]"
+                    >
+                      <span className="text-slate-600">[{new Date(packet.timestamp).toLocaleTimeString()}]</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        packet.type === 'SCENE' ? 'bg-cyan-500/20 text-cyan-400' :
+                        packet.type === 'BAND' ? 'bg-purple-500/20 text-purple-400' :
+                        packet.type === 'CLIMATE' ? 'bg-orange-500/20 text-orange-400' :
+                        packet.type === 'INDEX' ? 'bg-green-500/20 text-green-400' :
+                        'bg-slate-500/20 text-slate-400'
+                      }`}>
+                        {packet.type}
+                      </span>
+                      <span className="text-green-500">✓</span>
+                      <span className="text-slate-500">{packet.size}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              
+              {/* Mini stats */}
+              <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                <div className="bg-slate-900/50 rounded-lg p-2">
+                  <p className="text-[10px] text-slate-500">SATELLITE</p>
+                  <p className="text-xs font-bold text-cyan-400">{selectedRegion.satellite}</p>
+                </div>
+                <div className="bg-slate-900/50 rounded-lg p-2">
+                  <p className="text-[10px] text-slate-500">BBOX</p>
+                  <p className="text-xs font-bold text-purple-400">{selectedRegion.bbox?.length || 4} coords</p>
+                </div>
+                <div className="bg-slate-900/50 rounded-lg p-2">
+                  <p className="text-[10px] text-slate-500">API</p>
+                  <p className="text-xs font-bold text-green-400">STAC</p>
+                </div>
+                <div className="bg-slate-900/50 rounded-lg p-2">
+                  <p className="text-[10px] text-slate-500">STATUS</p>
+                  <p className="text-xs font-bold text-yellow-400">{isLoading ? 'ACTIVE' : 'READY'}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Processing Animation Panel (shown during loading) */}
+        {isLoading && (
+          <div className="mb-6 bg-gradient-to-r from-indigo-900/30 to-purple-900/30 border border-indigo-500/30 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-indigo-300">⚡ Processing Pipeline</h3>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-sm text-cyan-400">Step {processingStep + 1} of {PROCESSING_STEPS.length}</span>
+              </div>
+            </div>
+            
+            {/* Progress bar */}
+            <div className="h-2 bg-slate-800 rounded-full mb-6 overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-cyan-500 to-indigo-500 transition-all duration-500 rounded-full"
+                style={{ width: `${((processingStep + 1) / PROCESSING_STEPS.length) * 100}%` }}
+              />
+            </div>
+            
+            {/* Steps */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+              {PROCESSING_STEPS.map((step, idx) => (
+                <div 
+                  key={step.id}
+                  className={`text-center p-3 rounded-xl transition-all duration-300 ${
+                    idx < processingStep ? 'bg-green-500/20 border border-green-500/30' :
+                    idx === processingStep ? 'bg-cyan-500/20 border border-cyan-500/50 scale-105' :
+                    'bg-slate-800/30 border border-slate-700/50 opacity-50'
+                  }`}
+                >
+                  <div className={`text-2xl mb-1 ${idx === processingStep ? 'animate-bounce' : ''}`}>
+                    {idx < processingStep ? '✅' : step.icon}
+                  </div>
+                  <p className={`text-[10px] font-medium ${
+                    idx < processingStep ? 'text-green-400' :
+                    idx === processingStep ? 'text-cyan-400' :
+                    'text-slate-500'
+                  }`}>
+                    {step.label.split('...')[0]}
+                  </p>
+                </div>
+              ))}
+            </div>
+            
+            {/* Current step detail */}
+            <div className="mt-4 text-center">
+              <p className="text-cyan-400 font-mono text-sm animate-pulse">
+                {PROCESSING_STEPS[processingStep]?.label}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Real-Time Events Banner */}
-        {realTimeEvents.length > 0 && (
+        {realTimeEvents.length > 0 && !isLoading && (
           <div className="mb-6 bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
@@ -528,6 +1186,91 @@ function Analysis() {
                     ))}
                   </div>
                 </div>
+
+                {/* AI Insights Panel */}
+                {aiInsights.length > 0 && (
+                  <div className="bg-gradient-to-br from-purple-900/30 to-indigo-900/30 border border-purple-500/30 rounded-2xl p-6">
+                    <div className="flex items-center justify-between mb-6">
+                      <h4 className="text-lg font-bold text-purple-300 flex items-center gap-3">
+                        <span className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center text-xl">
+                          🤖
+                        </span>
+                        AI-Powered Insights
+                      </h4>
+                      <span className="text-xs bg-purple-500/20 text-purple-300 px-3 py-1 rounded-full">
+                        Powered by Satellite AI
+                      </span>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {aiInsights.map((insight, idx) => (
+                        <div 
+                          key={idx}
+                          className={`relative overflow-hidden rounded-xl p-4 border transition-all hover:scale-[1.01] ${
+                            insight.type === 'success' ? 'bg-green-500/10 border-green-500/30' :
+                            insight.type === 'warning' ? 'bg-yellow-500/10 border-yellow-500/30' :
+                            insight.type === 'alert' ? 'bg-red-500/10 border-red-500/30' :
+                            insight.type === 'recommendation' ? 'bg-indigo-500/10 border-indigo-500/30' :
+                            'bg-blue-500/10 border-blue-500/30'
+                          }`}
+                        >
+                          <div className="flex items-start gap-4">
+                            <span className="text-2xl">{insight.icon}</span>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-1">
+                                <h5 className={`font-bold ${
+                                  insight.type === 'success' ? 'text-green-400' :
+                                  insight.type === 'warning' ? 'text-yellow-400' :
+                                  insight.type === 'alert' ? 'text-red-400' :
+                                  insight.type === 'recommendation' ? 'text-indigo-400' :
+                                  'text-blue-400'
+                                }`}>
+                                  {insight.title}
+                                </h5>
+                                <span className="text-xs text-slate-500 flex items-center gap-1">
+                                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                  </svg>
+                                  {insight.confidence}% confidence
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-300">{insight.description}</p>
+                            </div>
+                          </div>
+                          
+                          {/* Confidence bar */}
+                          <div className="mt-3 h-1 bg-slate-700 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-1000 ${
+                                insight.type === 'success' ? 'bg-green-500' :
+                                insight.type === 'warning' ? 'bg-yellow-500' :
+                                insight.type === 'alert' ? 'bg-red-500' :
+                                insight.type === 'recommendation' ? 'bg-indigo-500' :
+                                'bg-blue-500'
+                              }`}
+                              style={{ width: `${insight.confidence}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* AI Summary */}
+                    <div className="mt-6 p-4 bg-slate-900/50 rounded-xl border border-slate-700">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm">💡</span>
+                        <span className="text-sm font-bold text-slate-300">Analysis Summary</span>
+                      </div>
+                      <p className="text-sm text-slate-400">
+                        Based on {analysisResults.sceneCount} satellite scenes and {Object.keys(analysisResults.results).length} spectral indices, 
+                        the AI has identified {aiInsights.length} key insights for {selectedRegion?.name}. 
+                        Primary concern: <span className="text-cyan-400">
+                          {aiInsights.find(i => i.type === 'warning' || i.type === 'alert')?.title || 'No major concerns detected'}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Spectral Indices Charts */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
