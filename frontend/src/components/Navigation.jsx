@@ -25,7 +25,15 @@ function Navigation() {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 group">
             <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center group-hover:shadow-lg group-hover:shadow-cyan-500/50 transition">
-              <span className="text-white font-bold text-lg">🛰️</span>
+              <svg width="24" height="24" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="50" cy="50" r="40" stroke="#00AEEF" strokeWidth="3" fill="none" />
+                <rect x="40" y="30" width="20" height="12" rx="2" fill="#1F2833" />
+                <rect x="28" y="28" width="10" height="4" fill="#0A4C6A" />
+                <rect x="62" y="28" width="10" height="4" fill="#0A4C6A" />
+                <line x1="50" y1="42" x2="50" y2="53" stroke="#1F2833" strokeWidth="2" />
+                <circle cx="50" cy="55" r="3" fill="#FFCC00" />
+                <path d="M30 70 L40 60 L50 68 L60 58 L70 70" stroke="#00AEEF" strokeWidth="3" fill="none" strokeLinecap="round"/>
+              </svg>
             </div>
             <span className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
               SatelliteAI

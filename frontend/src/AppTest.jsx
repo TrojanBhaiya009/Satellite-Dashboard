@@ -67,7 +67,15 @@ function AppTest() {
               fontWeight: 'bold'
             }}
           >
-            <span style={{ fontSize: '28px' }}>🛰️</span>
+            <svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="50" cy="50" r="40" stroke="#00AEEF" strokeWidth="3" fill="none" />
+              <rect x="40" y="30" width="20" height="12" rx="2" fill="#1F2833" />
+              <rect x="28" y="28" width="10" height="4" fill="#0A4C6A" />
+              <rect x="62" y="28" width="10" height="4" fill="#0A4C6A" />
+              <line x1="50" y1="42" x2="50" y2="53" stroke="#1F2833" strokeWidth="2" />
+              <circle cx="50" cy="55" r="3" fill="#FFCC00" />
+              <path d="M30 70 L40 60 L50 68 L60 58 L70 70" stroke="#00AEEF" strokeWidth="3" fill="none" strokeLinecap="round"/>
+            </svg>
             <span style={{ background: 'linear-gradient(to right, rgb(34, 197, 94), rgb(6, 182, 212))', backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               SatelliteAI
             </span>

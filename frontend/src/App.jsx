@@ -44,7 +44,7 @@ function App() {
         display: 'flex', 
         alignItems: 'center', 
         justifyContent: 'center',
-        fontFamily: 'system-ui, -apple-system, sans-serif'
+        fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif"
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{

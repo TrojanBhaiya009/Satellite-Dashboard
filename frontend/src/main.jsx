@@ -29,7 +29,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         alignItems: 'center',
         justifyContent: 'center',
         color: '#f87171',
-        fontFamily: 'system-ui, sans-serif',
+        fontFamily: "'SF Pro Display', system-ui, sans-serif",
         padding: '2rem',
         textAlign: 'center'
       }}>
