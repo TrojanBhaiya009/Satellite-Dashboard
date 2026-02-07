@@ -7,7 +7,7 @@ function Toolbar() {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-cyan-400">📡 Datasets</h2>
         <button
-          onClick={() => toast.info('📥 Download from Copernicus or USGS to add new datasets', { icon: 'ℹ️' })}
+          onClick={() => toast('📥 Download from Copernicus or USGS to add new datasets', { icon: 'ℹ️' })}
           className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded transition"
           title="Add datasets from Copernicus or USGS"
         >

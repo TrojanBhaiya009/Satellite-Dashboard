@@ -8,6 +8,7 @@ import Datasets from './pages/Datasets'
 import Analysis from './pages/Analysis'
 import DataFusion from './pages/DataFusion'
 import Globe from './pages/Globe'
+import MissionControl from './pages/MissionControl'
 import Profile from './pages/Profile'
 import Settings from './pages/Settings'
 import './styles/Globe.css'
@@ -77,6 +78,7 @@ function App() {
         <Route path="/datasets" element={isSignedIn ? <Datasets /> : <Navigate to="/auth" />} />
         <Route path="/analysis" element={isSignedIn ? <Analysis /> : <Navigate to="/auth" />} />
         <Route path="/fusion" element={isSignedIn ? <DataFusion /> : <Navigate to="/auth" />} />
+        <Route path="/mission-control" element={isSignedIn ? <MissionControl /> : <Navigate to="/auth" />} />
         <Route path="/globe" element={isSignedIn ? <Globe /> : <Navigate to="/auth" />} />
         <Route path="/profile" element={isSignedIn ? <Profile /> : <Navigate to="/auth" />} />
         <Route path="/settings" element={isSignedIn ? <Settings /> : <Navigate to="/auth" />} />

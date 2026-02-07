@@ -2,82 +2,68 @@ import { useRef, useMemo, useState, useEffect, useCallback } from 'react'
 import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber'
 import { OrbitControls, Stars, Html } from '@react-three/drei'
 import * as THREE from 'three'
-import {
-  SATELLITE_GROUPS,
-  fetchSatelliteGroup,
-  fetchISS,
-  updateSatellitePositions,
-  generateOrbitPath
-} from '../services/satelliteTracker'
+import { fetchNaturalEvents } from '../services/satelliteApi'
+import { fetchISS } from '../services/satelliteTracker'
 
-// Convert lat/lon/alt to 3D position on sphere
+// ── Helpers ──────────────────────────────────────────────────
 function latLonToVec3(lat, lon, radius) {
   const phi = (90 - lat) * (Math.PI / 180)
   const theta = (lon + 180) * (Math.PI / 180)
-  const x = -radius * Math.sin(phi) * Math.cos(theta)
-  const y = radius * Math.cos(phi)
-  const z = radius * Math.sin(phi) * Math.sin(theta)
-  return new THREE.Vector3(x, y, z)
+  return new THREE.Vector3(
+    -radius * Math.sin(phi) * Math.cos(theta),
+    radius * Math.cos(phi),
+    radius * Math.sin(phi) * Math.sin(theta)
+  )
 }
 
-// ============================================
-// Real-time Sun Position Calculator
-// Computes where the sun is (lat/lon) based on current UTC time
-// ============================================
+// Category config — colours + icons for NASA EONET event types
+const EVENT_CATEGORIES = {
+  wildfires:    { label: 'Wildfires',     icon: '🔥', color: '#ef4444' },
+  severeStorms: { label: 'Severe Storms', icon: '🌀', color: '#8b5cf6' },
+  volcanoes:    { label: 'Volcanoes',     icon: '🌋', color: '#f97316' },
+  floods:       { label: 'Floods',        icon: '🌊', color: '#3b82f6' },
+  earthquakes:  { label: 'Earthquakes',   icon: '⚡', color: '#eab308' },
+  seaLakeIce:   { label: 'Sea & Ice',     icon: '❄️', color: '#06b6d4' },
+  landslides:   { label: 'Landslides',    icon: '⛰️', color: '#a3622a' },
+  snow:         { label: 'Snow',          icon: '🌨️', color: '#cbd5e1' },
+  drought:      { label: 'Drought',       icon: '☀️', color: '#d97706' },
+}
+const DEFAULT_CAT = { label: 'Event', icon: '📡', color: '#94a3b8' }
+function getCat(id) { return EVENT_CATEGORIES[id] || DEFAULT_CAT }
+
+// ── Sun position ─────────────────────────────────────────────
 function getSunPosition(date = new Date()) {
   const jd = date.getTime() / 86400000 + 2440587.5
-  const n = jd - 2451545.0 // days since J2000.0
-
-  // Mean longitude & mean anomaly of the sun
+  const n = jd - 2451545.0
   const L = (280.460 + 0.9856474 * n) % 360
   const g = ((357.528 + 0.9856003 * n) % 360) * (Math.PI / 180)
-
-  // Ecliptic longitude
   const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * (Math.PI / 180)
-
-  // Obliquity of the ecliptic
   const epsilon = (23.439 - 0.0000004 * n) * (Math.PI / 180)
-
-  // Right ascension and declination
   const sinLambda = Math.sin(lambda)
   const cosLambda = Math.cos(lambda)
-  const sinEpsilon = Math.sin(epsilon)
-  const cosEpsilon = Math.cos(epsilon)
-
-  const declination = Math.asin(sinEpsilon * sinLambda) // radians
-
-  // Greenwich Mean Sidereal Time (hours)
+  const declination = Math.asin(Math.sin(epsilon) * sinLambda)
   const utHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600
   const gmst = (6.697375 + 0.0657098242 * n + utHours) % 24
-
-  // Sub-solar point
-  const ra = Math.atan2(cosEpsilon * sinLambda, cosLambda) // radians
+  const ra = Math.atan2(Math.cos(epsilon) * sinLambda, cosLambda)
   const raDeg = ((ra * 180 / Math.PI) + 360) % 360
-  const sunLon = raDeg - gmst * 15 // degrees
-  const sunLat = declination * (180 / Math.PI) // degrees
-
+  const sunLon = raDeg - gmst * 15
+  const sunLat = declination * (180 / Math.PI)
   return { lat: sunLat, lon: ((sunLon + 540) % 360) - 180 }
 }
-
-// Convert sun lat/lon to a 3D direction vector (used for light position)
 function getSunDirection(date = new Date()) {
   const { lat, lon } = getSunPosition(date)
-  const pos = latLonToVec3(lat, lon, 10)
-  return pos
+  return latLonToVec3(lat, lon, 10)
 }
 
-// ============================================
-// Day/Night Earth Shader Material
-// Blends day map and night lights based on real sun position
-// ============================================
+// ── Earth shader ─────────────────────────────────────────────
 function createEarthMaterial(dayMap, nightMap, bumpMap, specMap, cloudsMap) {
   return new THREE.ShaderMaterial({
     uniforms: {
-      dayTexture: { value: dayMap },
+      dayTexture:   { value: dayMap },
       nightTexture: { value: nightMap },
-      bumpTexture: { value: bumpMap },
-      specTexture: { value: specMap },
-      cloudsTexture: { value: cloudsMap },
+      bumpTexture:  { value: bumpMap },
+      specTexture:  { value: specMap },
+      cloudsTexture:{ value: cloudsMap },
       sunDirection: { value: new THREE.Vector3(1, 0, 0) },
     },
     vertexShader: `
@@ -86,7 +72,6 @@ function createEarthMaterial(dayMap, nightMap, bumpMap, specMap, cloudsMap) {
       varying vec3 vWorldPosition;
       void main() {
         vUv = uv;
-        // Transform normal to WORLD space (not view space) so it matches the world-space sun direction
         vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPos.xyz;
@@ -100,72 +85,44 @@ function createEarthMaterial(dayMap, nightMap, bumpMap, specMap, cloudsMap) {
       uniform sampler2D specTexture;
       uniform sampler2D cloudsTexture;
       uniform vec3 sunDirection;
-
       varying vec2 vUv;
       varying vec3 vNormal;
       varying vec3 vWorldPosition;
-
       void main() {
         vec3 sunDir = normalize(sunDirection);
         vec3 normal = normalize(vNormal);
-
-        // Cosine of angle between surface normal and sun direction
         float NdotL = dot(normal, sunDir);
-
-        // Smooth transition across terminator (twilight zone)
-        // -0.1 to 0.2 range gives a realistic twilight band
         float dayFactor = smoothstep(-0.15, 0.25, NdotL);
-
-        // Sample textures
-        vec4 dayColor = texture2D(dayTexture, vUv);
-        vec4 nightColor = texture2D(nightTexture, vUv);
-        vec4 clouds = texture2D(cloudsTexture, vUv);
-        vec4 spec = texture2D(specTexture, vUv);
-
-        // Day side: full color with clouds
+        vec4 dayColor  = texture2D(dayTexture, vUv);
+        vec4 nightColor= texture2D(nightTexture, vUv);
+        vec4 clouds    = texture2D(cloudsTexture, vUv);
+        vec4 spec      = texture2D(specTexture, vUv);
         vec3 daySide = dayColor.rgb;
-        // Add subtle diffuse shading on day side
         float diffuse = max(NdotL, 0.0);
         daySide *= (0.35 + 0.65 * diffuse);
-        // Add clouds on day side (brighter in sunlight)
-        daySide = mix(daySide, vec3(1.0), clouds.r * 0.4 * diffuse);
-
-        // Specular highlight on water (where specular map is bright)
+        daySide = mix(daySide, vec3(0.85), clouds.r * 0.25 * diffuse);
         vec3 viewDir = normalize(cameraPosition - vWorldPosition);
         vec3 halfDir = normalize(sunDir + viewDir);
         float specAngle = max(dot(normal, halfDir), 0.0);
-        float specular = pow(specAngle, 40.0) * spec.r * dayFactor;
-
-        // Night side: city lights glow with warm orange tint
-        vec3 nightSide = nightColor.rgb * vec3(1.0, 0.85, 0.6) * 1.5;
-        // Dim clouds on night side
+        float specular  = pow(specAngle, 40.0) * spec.r * dayFactor;
+        vec3 nightSide = nightColor.rgb * vec3(1.0, 0.85, 0.6) * 1.1;
         nightSide = max(nightSide - clouds.r * 0.3, vec3(0.0));
-
-        // Blend between day and night
         vec3 finalColor = mix(nightSide, daySide, dayFactor);
-
-        // Add specular on top
-        finalColor += vec3(0.6, 0.6, 0.7) * specular * 0.8;
-
-        // Subtle ambient so dark side isn't pure black
+        finalColor += vec3(0.4, 0.4, 0.5) * specular * 0.5;
         finalColor += vec3(0.005, 0.008, 0.015);
-
         gl_FragColor = vec4(finalColor, 1.0);
       }
     `,
   })
 }
 
-// ============================================
-// Earth Globe Mesh — Real-time day/night
-// ============================================
+// ── Earth mesh ───────────────────────────────────────────────
 function Earth({ sunRef }) {
-  const earthRef = useRef()
-  const cloudsRef = useRef()
+  const earthRef   = useRef()
+  const cloudsRef  = useRef()
   const atmosphereRef = useRef()
-  const materialRef = useRef()
+  const materialRef   = useRef()
 
-  // Load textures
   const [earthMap, earthBump, earthSpec, cloudsMap, earthNight] = useLoader(THREE.TextureLoader, [
     'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_2048.jpg',
     'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_normal_2048.jpg',
@@ -174,19 +131,17 @@ function Earth({ sunRef }) {
     'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_lights_2048.png',
   ])
 
-  // Create custom day/night shader material
   const earthMaterial = useMemo(() => {
     const mat = createEarthMaterial(earthMap, earthNight, earthBump, earthSpec, cloudsMap)
     materialRef.current = mat
     return mat
   }, [earthMap, earthNight, earthBump, earthSpec, cloudsMap])
 
-  // Atmosphere glow shader
   const atmosphereShader = useMemo(() => ({
     uniforms: {
-      coefficient: { value: 0.8 },
-      power: { value: 6.0 },
-      glowColor: { value: new THREE.Color('#4facfe') },
+      coefficient: { value: 0.65 },
+      power:       { value: 8.0 },
+      glowColor:   { value: new THREE.Color('#1a6fa0') },
     },
     vertexShader: `
       varying vec3 vNormal;
@@ -205,427 +160,242 @@ function Earth({ sunRef }) {
       varying vec3 vPositionNormal;
       void main() {
         float intensity = pow(coefficient + dot(vPositionNormal, vNormal), power);
-        gl_FragColor = vec4(glowColor, intensity * 0.65);
+        gl_FragColor = vec4(glowColor, intensity * 0.3);
       }
     `,
   }), [])
 
-  // Update sun direction every frame based on real time
   useFrame(() => {
     const now = new Date()
     const sunPos = getSunDirection(now)
-
-    // Update the shader uniform with new sun direction
-    if (materialRef.current) {
-      materialRef.current.uniforms.sunDirection.value.copy(sunPos)
-    }
-
-    // Share sun position with parent for the directional light
-    if (sunRef) {
-      sunRef.current = sunPos
-    }
-
-    // Gentle cloud drift (clouds move independently)
-    if (cloudsRef.current) {
-      cloudsRef.current.rotation.y += 0.00003
-    }
+    if (materialRef.current) materialRef.current.uniforms.sunDirection.value.copy(sunPos)
+    if (sunRef) sunRef.current = sunPos
+    if (cloudsRef.current) cloudsRef.current.rotation.y += 0.00003
   })
 
   return (
     <group>
-      {/* Earth with day/night shader — NO rotation since we track real-time sun */}
       <mesh ref={earthRef} material={earthMaterial}>
         <sphereGeometry args={[2, 128, 128]} />
       </mesh>
-
-      {/* Cloud layer (slightly transparent, lit only on day side) */}
       <mesh ref={cloudsRef}>
         <sphereGeometry args={[2.008, 128, 128]} />
-        <meshPhongMaterial
-          map={cloudsMap}
-          transparent
-          opacity={0.22}
-          depthWrite={false}
-          side={THREE.DoubleSide}
-        />
+        <meshPhongMaterial map={cloudsMap} transparent opacity={0.22} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
-
-      {/* Atmosphere glow */}
-      <mesh ref={atmosphereRef} scale={[1.12, 1.12, 1.12]}>
+      <mesh ref={atmosphereRef} scale={[1.06, 1.06, 1.06]}>
         <sphereGeometry args={[2, 64, 64]} />
-        <shaderMaterial
-          args={[atmosphereShader]}
-          transparent
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
+        <shaderMaterial args={[atmosphereShader]} transparent side={THREE.BackSide} depthWrite={false} />
       </mesh>
     </group>
   )
 }
 
-// ============================================
-// Enhanced Satellite Points with Halos
-// ============================================
-function SatellitePoints({ satellites, selectedSat, onSelect }) {
-  const EARTH_RADIUS = 2
-  const SCALE = EARTH_RADIUS / 6371 // km to scene units
+// ── Event markers (dots on the globe surface) ────────────────
+function EventMarkers({ events, selectedEvent, onSelect }) {
+  const RADIUS = 2.02
 
-  const { points, colors, sizes, halos } = useMemo(() => {
-    const pts = []
-    const cols = []
-    const szs = []
-    const haloGeoms = []
-
-    satellites.forEach(sat => {
-      const altKm = sat.position.altitude / 1000
-      const r = EARTH_RADIUS + altKm * SCALE
-      const pos = latLonToVec3(sat.position.latitude, sat.position.longitude, r)
-      pts.push(pos.x, pos.y, pos.z)
-
-      const col = new THREE.Color(sat.color)
-      cols.push(col.r, col.g, col.b)
-
-      const isSelected = selectedSat?.id === sat.id
-      // Much larger sizes: 12-16 for selected, 6-8 for normal satellites
-      szs.push(isSelected ? 16 : 8)
-      
-      // Store position for halo rings
-      haloGeoms.push({ pos, color: col, isSelected })
-    })
-
-    return {
-      points: new Float32Array(pts),
-      colors: new Float32Array(cols),
-      sizes: new Float32Array(szs),
-      halos: haloGeoms,
-    }
-  }, [satellites, selectedSat, EARTH_RADIUS, SCALE])
-
-  // Enhanced shader with brighter glow
-  const shaderMaterial = useMemo(() => new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 } },
-    vertexShader: `
-      attribute float size;
-      attribute vec3 customColor;
-      varying vec3 vColor;
-      void main() {
-        vColor = customColor;
-        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * (400.0 / -mvPosition.z);
-        gl_Position = projectionMatrix * mvPosition;
-      }
-    `,
-    fragmentShader: `
-      varying vec3 vColor;
-      void main() {
-        float d = length(gl_PointCoord - vec2(0.5));
-        if (d > 0.5) discard;
-        
-        // Intense core
-        float core = smoothstep(0.25, 0.0, d);
-        // Wide soft glow
-        float glow = 1.2 * (1.0 - smoothstep(0.0, 0.5, d));
-        
-        vec3 color = vColor * (glow * 0.8 + core * 1.2);
-        float alpha = (glow + core) * 0.95;
-        gl_FragColor = vec4(color, alpha);
-      }
-    `,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  }), [])
-
-  if (satellites.length === 0) return null
+  const markers = useMemo(() => {
+    return events.map(evt => {
+      const geo = evt.geometry?.[0] || evt.geometry
+      if (!geo?.coordinates) return null
+      const coords = Array.isArray(geo.coordinates[0]) ? geo.coordinates[0] : geo.coordinates
+      const lon = coords[0]
+      const lat = coords[1]
+      const catId = evt.categories?.[0]?.id || ''
+      const cat = getCat(catId)
+      const pos = latLonToVec3(lat, lon, RADIUS)
+      const isSelected = selectedEvent?.id === evt.id
+      return { id: evt.id, pos, color: cat.color, isSelected, evt }
+    }).filter(Boolean)
+  }, [events, selectedEvent])
 
   return (
     <group>
-      {/* Main satellite points */}
-      <points material={shaderMaterial}>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            count={satellites.length}
-            array={points}
-            itemSize={3}
-          />
-          <bufferAttribute
-            attach="attributes-customColor"
-            count={satellites.length}
-            array={colors}
-            itemSize={3}
-          />
-          <bufferAttribute
-            attach="attributes-size"
-            count={satellites.length}
-            array={sizes}
-            itemSize={1}
-          />
-        </bufferGeometry>
-      </points>
-
-      {/* Halo rings around satellites for extra visibility */}
-      {halos.map((halo, i) => (
-        <mesh key={`halo-${i}`} position={[halo.pos.x, halo.pos.y, halo.pos.z]}>
-          <ringGeometry args={[0.08, 0.14, 32]} />
-          <meshBasicMaterial
-            color={halo.color}
-            transparent
-            opacity={halo.isSelected ? 0.8 : 0.4}
-            depthWrite={false}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
+      {markers.map(m => (
+        <group key={m.id} position={[m.pos.x, m.pos.y, m.pos.z]}>
+          {/* Core dot */}
+          <mesh onClick={(e) => { e.stopPropagation(); onSelect(m.evt) }}>
+            <sphereGeometry args={[m.isSelected ? 0.04 : 0.025, 12, 12]} />
+            <meshBasicMaterial color={m.color} />
+          </mesh>
+          {/* Ring highlight */}
+          {m.isSelected && (
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.05, 0.07, 24]} />
+              <meshBasicMaterial color={m.color} transparent opacity={0.55} depthWrite={false} side={THREE.DoubleSide} />
+            </mesh>
+          )}
+        </group>
       ))}
     </group>
   )
 }
 
-// ============================================
-// Enhanced Orbit Lines with Better Visibility
-// ============================================
-function OrbitLines({ satellites, selectedSat, showOrbits }) {
-  const EARTH_RADIUS = 2
-  const SCALE = EARTH_RADIUS / 6371
+// ── ISS marker ───────────────────────────────────────────────
+function ISSMarker({ iss }) {
+  const ringRef = useRef()
+  useFrame((_, delta) => { if (ringRef.current) ringRef.current.rotation.z += delta * 2 })
 
-  const lines = useMemo(() => {
-    if (!showOrbits) return []
-
-    // Show more satellites' orbits (up to 50) for better orbital visualization
-    return satellites.slice(0, 50).map(sat => {
-      const path = generateOrbitPath(sat, 300) // More points for smoother curves
-      if (!path || path.length < 2) return null
-
-      const positions = path.map(p => {
-        const altKm = p.altitude / 1000
-        const r = EARTH_RADIUS + altKm * SCALE
-        return latLonToVec3(p.latitude, p.longitude, r)
-      })
-
-      const geometry = new THREE.BufferGeometry().setFromPoints(positions)
-      const color = new THREE.Color(sat.color)
-      const isSelected = selectedSat?.id === sat.id
-
-      return { 
-        geometry, 
-        color, 
-        // Much brighter and thicker orbits
-        opacity: isSelected ? 0.9 : 0.35,
-        width: isSelected ? 3 : 1.5,
-        id: sat.id 
-      }
-    }).filter(Boolean)
-  }, [satellites.length, selectedSat, showOrbits])
+  if (!iss) return null
+  const pos = latLonToVec3(iss.position.latitude, iss.position.longitude, 2.06)
 
   return (
-    <>
-      {lines.map(line => (
-        <line key={line.id} geometry={line.geometry}>
-          <lineBasicMaterial
-            color={line.color}
-            transparent
-            opacity={line.opacity}
-            linewidth={line.width}
-            depthWrite={false}
-            blending={THREE.AdditiveBlending}
-          />
-        </line>
-      ))}
-    </>
+    <group position={[pos.x, pos.y, pos.z]}>
+      <mesh>
+        <sphereGeometry args={[0.035, 12, 12]} />
+        <meshBasicMaterial color="#00ff88" />
+      </mesh>
+      <mesh ref={ringRef}>
+        <ringGeometry args={[0.05, 0.07, 24]} />
+        <meshBasicMaterial color="#00ff88" transparent opacity={0.4} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
+      <Html center style={{ pointerEvents: 'none' }}>
+        <div style={{
+          background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(0,255,136,0.3)', borderRadius: '6px',
+          padding: '3px 8px', color: '#00ff88', fontSize: '10px',
+          fontFamily: 'monospace', whiteSpace: 'nowrap', transform: 'translateY(-24px)',
+        }}>
+          🏠 ISS {iss.position.latitude.toFixed(1)}°, {iss.position.longitude.toFixed(1)}°
+        </div>
+      </Html>
+    </group>
   )
 }
 
-// ============================================
-// Selected satellite label (HTML overlay)
-// ============================================
-function SatelliteLabel({ satellite }) {
-  const EARTH_RADIUS = 2
-  const SCALE = EARTH_RADIUS / 6371
-
-  if (!satellite) return null
-
-  const altKm = satellite.position.altitude / 1000
-  const r = EARTH_RADIUS + altKm * SCALE + 0.08
-  const pos = latLonToVec3(satellite.position.latitude, satellite.position.longitude, r)
+// ── Event floating label ─────────────────────────────────────
+function EventLabel({ event }) {
+  if (!event) return null
+  const geo = event.geometry?.[0] || event.geometry
+  if (!geo?.coordinates) return null
+  const coords = Array.isArray(geo.coordinates[0]) ? geo.coordinates[0] : geo.coordinates
+  const pos = latLonToVec3(coords[1], coords[0], 2.08)
+  const cat = getCat(event.categories?.[0]?.id)
 
   return (
     <Html position={[pos.x, pos.y, pos.z]} center style={{ pointerEvents: 'none' }}>
       <div style={{
-        background: 'rgba(15, 23, 42, 0.85)',
-        backdropFilter: 'blur(8px)',
-        border: `1px solid ${satellite.color}55`,
-        borderRadius: '8px',
-        padding: '6px 12px',
-        color: '#e2e8f0',
-        fontSize: '11px',
-        fontFamily: 'monospace',
-        whiteSpace: 'nowrap',
-        transform: 'translateY(-30px)',
-        boxShadow: `0 0 20px ${satellite.color}33`,
+        background: 'rgba(15,23,42,0.9)', backdropFilter: 'blur(8px)',
+        border: `1px solid ${cat.color}55`, borderRadius: '8px',
+        padding: '8px 12px', color: '#e2e8f0', fontSize: '11px',
+        fontFamily: 'monospace', whiteSpace: 'nowrap', transform: 'translateY(-36px)',
+        maxWidth: '260px', boxShadow: `0 0 12px ${cat.color}22`,
       }}>
-        <div style={{ color: satellite.color, fontWeight: 700, marginBottom: 2 }}>
-          {satellite.icon} {satellite.name}
+        <div style={{ color: cat.color, fontWeight: 700, marginBottom: 3, fontSize: '12px' }}>
+          {cat.icon} {event.title}
         </div>
         <div style={{ color: '#94a3b8', fontSize: '10px' }}>
-          {satellite.position.latitude.toFixed(2)}°, {satellite.position.longitude.toFixed(2)}° | {(satellite.position.altitude / 1000).toFixed(0)} km
+          📍 {coords[1].toFixed(2)}°, {coords[0].toFixed(2)}°
+          {geo.date && <span> · 📅 {new Date(geo.date).toLocaleDateString()}</span>}
         </div>
       </div>
     </Html>
   )
 }
 
-// ============================================
-// Scene Setup — with real-time sun tracking
-// ============================================
+// ── Sunlight ─────────────────────────────────────────────────
 function SunLight({ sunRef }) {
   const lightRef = useRef()
-  
-  useFrame(() => {
-    if (lightRef.current && sunRef.current) {
-      lightRef.current.position.copy(sunRef.current)
-    }
-  })
-
-  return (
-    <directionalLight
-      ref={lightRef}
-      position={[5, 3, 5]}
-      intensity={2.0}
-      color="#fff5e6"
-    />
-  )
+  useFrame(() => { if (lightRef.current && sunRef.current) lightRef.current.position.copy(sunRef.current) })
+  return <directionalLight ref={lightRef} position={[5, 3, 5]} intensity={1.4} color="#fff5e6" />
 }
 
-function Scene({ satellites, selectedSat, onSelect, showOrbits }) {
+// ── Scene ────────────────────────────────────────────────────
+function Scene({ events, selectedEvent, onSelectEvent, iss, showISS }) {
   const sunRef = useRef(new THREE.Vector3(5, 3, 5))
-
   return (
     <>
-      {/* Lighting — sun tracks real position */}
-      <ambientLight intensity={0.03} color="#223355" />
+      <ambientLight intensity={0.02} color="#1a2844" />
       <SunLight sunRef={sunRef} />
-
-      {/* Stars background */}
-      <Stars radius={100} depth={60} count={8000} factor={5} saturation={0.2} fade speed={0.5} />
-
-      {/* Earth — receives sun ref for shader */}
+      <Stars radius={100} depth={60} count={6000} factor={3} saturation={0.15} fade speed={0.4} />
       <Earth sunRef={sunRef} />
-
-      {/* Satellites */}
-      <SatellitePoints satellites={satellites} selectedSat={selectedSat} onSelect={onSelect} />
-      <OrbitLines satellites={satellites} selectedSat={selectedSat} showOrbits={showOrbits} />
-      <SatelliteLabel satellite={selectedSat} />
-
-      {/* Camera Controls */}
+      <EventMarkers events={events} selectedEvent={selectedEvent} onSelect={onSelectEvent} />
+      <EventLabel event={selectedEvent} />
+      {showISS && <ISSMarker iss={iss} />}
       <OrbitControls
-        enablePan={false}
-        minDistance={2.5}
-        maxDistance={15}
-        rotateSpeed={0.5}
-        zoomSpeed={0.8}
-        enableDamping
-        dampingFactor={0.05}
-        autoRotate
-        autoRotateSpeed={0.15}
+        enablePan={false} minDistance={2.5} maxDistance={15}
+        rotateSpeed={0.5} zoomSpeed={0.8} enableDamping dampingFactor={0.05}
+        autoRotate autoRotateSpeed={0.15}
       />
     </>
   )
 }
 
-// ============================================
-// Main Globe Component
-// ============================================
+// ═══════════════════════════════════════════════════════════════
+//  MAIN COMPONENT — Natural Disaster Globe
+// ═══════════════════════════════════════════════════════════════
 function RealisticGlobe() {
-  const [satellites, setSatellites] = useState([])
-  const [selectedSat, setSelectedSat] = useState(null)
-  const [activeGroups, setActiveGroups] = useState(['ISS', 'STARLINK', 'WEATHER'])
-  const [loading, setLoading] = useState(true)
-  const [showOrbits, setShowOrbits] = useState(true)
-  const [satCount, setSatCount] = useState(0)
-  const [clockSpeed, setClockSpeed] = useState(1)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [showPanel, setShowPanel] = useState(true)
-  const [viewMode, setViewMode] = useState('3d')
-  const [utcTime, setUtcTime] = useState('')
-  const [sunInfo, setSunInfo] = useState({ lat: 0, lon: 0 })
-  const satellitesRef = useRef([])
+  const [events, setEvents]             = useState([])
+  const [selectedEvent, setSelectedEvent] = useState(null)
+  const [iss, setIss]                   = useState(null)
+  const [loading, setLoading]           = useState(true)
+  const [showISS, setShowISS]           = useState(true)
+  const [showPanel, setShowPanel]       = useState(true)
+  const [searchQuery, setSearchQuery]   = useState('')
+  const [activeCategories, setActiveCategories] = useState(Object.keys(EVENT_CATEGORIES))
+  const [utcTime, setUtcTime]           = useState('')
+  const [sunInfo, setSunInfo]           = useState({ lat: 0, lon: 0 })
 
-  // Real-time UTC clock
+  // UTC clock
   useEffect(() => {
     const tick = () => {
       const now = new Date()
       setUtcTime(now.toISOString().slice(11, 19) + ' UTC')
-      const sun = getSunPosition(now)
-      setSunInfo(sun)
+      setSunInfo(getSunPosition(now))
     }
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [])
 
-  // Load satellites
-  const loadSatellites = useCallback(async () => {
+  // Fetch EONET events + ISS on mount
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const results = await Promise.all(
-        activeGroups.map(g => fetchSatelliteGroup(g))
-      )
-      const allSats = results.flat()
-
-      const iss = await fetchISS()
-      if (iss && !allSats.find(s => s.id === '25544')) {
-        allSats.unshift(iss)
-      }
-
-      setSatellites(allSats)
-      satellitesRef.current = allSats
-      setSatCount(allSats.length)
+      const [evtData, issData] = await Promise.all([fetchNaturalEvents(null, 80), fetchISS()])
+      setEvents(evtData || [])
+      setIss(issData)
     } catch (err) {
-      console.error('Failed to load satellites:', err)
+      console.error('Failed to load globe data:', err)
     } finally {
       setLoading(false)
     }
-  }, [activeGroups])
+  }, [])
 
-  useEffect(() => { loadSatellites() }, [loadSatellites])
+  useEffect(() => { loadData() }, [loadData])
 
-  // Real-time position updates
+  // Live ISS poll
   useEffect(() => {
-    if (satellites.length === 0) return
-    const interval = setInterval(() => {
-      setSatellites(prev => {
-        const updated = updateSatellitePositions(prev, new Date())
-        satellitesRef.current = updated
-        return updated
-      })
-    }, 1000 / clockSpeed)
-    return () => clearInterval(interval)
-  }, [satellites.length, clockSpeed])
+    const id = setInterval(async () => {
+      try { const d = await fetchISS(); if (d) setIss(d) } catch {}
+    }, 5000)
+    return () => clearInterval(id)
+  }, [])
 
-  const toggleGroup = (groupKey) => {
-    setActiveGroups(prev =>
-      prev.includes(groupKey)
-        ? prev.filter(g => g !== groupKey)
-        : [...prev, groupKey]
-    )
-  }
+  const toggleCategory = (catId) =>
+    setActiveCategories(p => p.includes(catId) ? p.filter(c => c !== catId) : [...p, catId])
 
-  const flyToSatellite = (sat) => {
-    setSelectedSat(sat)
-  }
+  // Filter
+  const filteredEvents = useMemo(() => {
+    let list = events
+    if (activeCategories.length < Object.keys(EVENT_CATEGORIES).length)
+      list = list.filter(e => activeCategories.includes(e.categories?.[0]?.id || ''))
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter(e => e.title.toLowerCase().includes(q))
+    }
+    return list
+  }, [events, activeCategories, searchQuery])
 
-  const resetView = () => {
-    setSelectedSat(null)
-  }
-
-  const filteredSatellites = searchQuery
-    ? satellites.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    : satellites
+  // Counts per category
+  const categoryCounts = useMemo(() => {
+    const c = {}
+    events.forEach(e => { const id = e.categories?.[0]?.id || 'unknown'; c[id] = (c[id] || 0) + 1 })
+    return c
+  }, [events])
 
   return (
     <div className="cesium-globe-wrapper">
-      {/* Three.js Canvas */}
       <Canvas
         camera={{ position: [0, 2, 6], fov: 45, near: 0.1, far: 200 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
@@ -633,27 +403,34 @@ function RealisticGlobe() {
         dpr={[1, 2]}
       >
         <Scene
-          satellites={filteredSatellites}
-          selectedSat={selectedSat}
-          onSelect={flyToSatellite}
-          showOrbits={showOrbits}
+          events={filteredEvents}
+          selectedEvent={selectedEvent}
+          onSelectEvent={setSelectedEvent}
+          iss={iss}
+          showISS={showISS}
         />
       </Canvas>
 
-      {/* UI Overlay */}
+      {/* ── Overlay UI ──────────────────────────────── */}
       <div className="globe-overlay">
-        {/* Top Bar */}
+
+        {/* Top bar */}
         <div className="globe-top-bar">
           <div className="globe-stat-badges">
             <div className="stat-badge">
-              <span className="stat-icon">🛰️</span>
-              <span className="stat-value">{satCount}</span>
-              <span className="stat-label">Tracking</span>
+              <span className="stat-icon">🌍</span>
+              <span className="stat-value">{filteredEvents.length}</span>
+              <span className="stat-label">Events</span>
             </div>
             <div className="stat-badge">
-              <span className="stat-icon">📡</span>
-              <span className="stat-value">{activeGroups.length}</span>
-              <span className="stat-label">Groups</span>
+              <span className="stat-icon">🔥</span>
+              <span className="stat-value">{categoryCounts.wildfires || 0}</span>
+              <span className="stat-label">Fires</span>
+            </div>
+            <div className="stat-badge">
+              <span className="stat-icon">🌀</span>
+              <span className="stat-value">{categoryCounts.severeStorms || 0}</span>
+              <span className="stat-label">Storms</span>
             </div>
             <div className="stat-badge live-badge">
               <span className="live-dot"></span>
@@ -665,90 +442,165 @@ function RealisticGlobe() {
             </div>
             <div className="stat-badge">
               <span className="stat-icon">☀️</span>
-              <span className="stat-value" style={{ fontSize: '0.65rem', fontFamily: 'monospace' }}>{sunInfo.lat.toFixed(1)}°, {sunInfo.lon.toFixed(1)}°</span>
+              <span className="stat-value" style={{ fontSize: '0.65rem', fontFamily: 'monospace' }}>
+                {sunInfo.lat.toFixed(1)}°, {sunInfo.lon.toFixed(1)}°
+              </span>
               <span className="stat-label">Sub-solar</span>
             </div>
           </div>
         </div>
 
-        {/* Side Panel Toggle */}
+        {/* Panel toggle */}
         <button className="panel-toggle" onClick={() => setShowPanel(!showPanel)}>
           {showPanel ? '◀' : '▶'}
         </button>
 
-        {/* Side Panel */}
+        {/* Side panel */}
         {showPanel && (
           <div className="globe-side-panel">
+
+            {/* Search */}
             <div className="panel-search">
-              <input type="text" placeholder="Search satellites..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
+              <input
+                type="text" placeholder="Search events…" value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)} className="search-input"
+              />
             </div>
 
+            {/* Category filters */}
             <div className="panel-section">
-              <h3 className="panel-section-title">Satellite Constellations</h3>
+              <h3 className="panel-section-title">Event Categories</h3>
               <div className="group-grid">
-                {Object.entries(SATELLITE_GROUPS).map(([key, group]) => (
-                  <button key={key} className={`group-btn ${activeGroups.includes(key) ? 'active' : ''}`} onClick={() => toggleGroup(key)}
-                    style={{ borderColor: activeGroups.includes(key) ? group.color : 'transparent', background: activeGroups.includes(key) ? `${group.color}15` : '' }}>
-                    <span className="group-icon">{group.icon}</span>
-                    <span className="group-name">{group.name}</span>
+                {Object.entries(EVENT_CATEGORIES).map(([id, cat]) => (
+                  <button
+                    key={id}
+                    className={`group-btn ${activeCategories.includes(id) ? 'active' : ''}`}
+                    onClick={() => toggleCategory(id)}
+                    style={{
+                      borderColor: activeCategories.includes(id) ? cat.color : 'transparent',
+                      background: activeCategories.includes(id) ? `${cat.color}15` : '',
+                    }}
+                  >
+                    <span className="group-icon">{cat.icon}</span>
+                    <span className="group-name">{cat.label}</span>
+                    {categoryCounts[id] > 0 && (
+                      <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: cat.color, fontWeight: 700 }}>
+                        {categoryCounts[id]}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
             </div>
 
+            {/* Controls */}
             <div className="panel-section">
               <h3 className="panel-section-title">Controls</h3>
               <div className="controls-grid">
                 <label className="control-item">
-                  <span>Show Orbits</span>
-                  <input type="checkbox" checked={showOrbits} onChange={(e) => setShowOrbits(e.target.checked)} className="control-toggle" />
+                  <span>Show ISS</span>
+                  <input type="checkbox" checked={showISS} onChange={e => setShowISS(e.target.checked)} className="control-toggle" />
                 </label>
-                <label className="control-item">
-                  <span>Speed: {clockSpeed}x</span>
-                  <input type="range" min="0.1" max="10" step="0.1" value={clockSpeed} onChange={(e) => setClockSpeed(parseFloat(e.target.value))} className="control-slider" />
-                </label>
-                <button className="control-btn" onClick={resetView}>🏠 Reset View</button>
-                <button className="control-btn refresh-btn" onClick={loadSatellites}>🔄 Refresh Data</button>
+                <button className="control-btn" onClick={() => setSelectedEvent(null)}>🏠 Reset View</button>
+                <button className="control-btn refresh-btn" onClick={loadData}>🔄 Refresh Data</button>
               </div>
             </div>
 
-            <div className="panel-section satellite-list-section">
-              <h3 className="panel-section-title">Satellites ({filteredSatellites.length})</h3>
-              <div className="satellite-list">
-                {filteredSatellites.slice(0, 50).map(sat => (
-                  <button key={sat.id} className={`sat-item ${selectedSat?.id === sat.id ? 'selected' : ''}`} onClick={() => flyToSatellite(sat)}>
-                    <span className="sat-icon">{sat.icon}</span>
-                    <div className="sat-info">
-                      <span className="sat-name">{sat.name}</span>
-                      <span className="sat-coords">{sat.position.latitude.toFixed(2)}°, {sat.position.longitude.toFixed(2)}° | {(sat.position.altitude / 1000).toFixed(0)} km</span>
-                    </div>
-                    <div className="sat-dot" style={{ background: sat.color }} />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {selectedSat && (
-              <div className="panel-section selected-detail">
-                <h3 className="panel-section-title">{selectedSat.icon} {selectedSat.name}</h3>
+            {/* ISS live */}
+            {iss && showISS && (
+              <div className="panel-section" style={{ borderLeft: '3px solid #00ff88' }}>
+                <h3 className="panel-section-title">🏠 ISS Live Position</h3>
                 <div className="detail-grid">
-                  <div className="detail-item"><span className="detail-label">Latitude</span><span className="detail-value">{selectedSat.position.latitude.toFixed(4)}°</span></div>
-                  <div className="detail-item"><span className="detail-label">Longitude</span><span className="detail-value">{selectedSat.position.longitude.toFixed(4)}°</span></div>
-                  <div className="detail-item"><span className="detail-label">Altitude</span><span className="detail-value">{(selectedSat.position.altitude / 1000).toFixed(1)} km</span></div>
-                  <div className="detail-item"><span className="detail-label">Inclination</span><span className="detail-value">{selectedSat.inclination?.toFixed(1)}°</span></div>
-                  <div className="detail-item"><span className="detail-label">Period</span><span className="detail-value">{selectedSat.period} min</span></div>
-                  {selectedSat.apogee && <div className="detail-item"><span className="detail-label">Apogee</span><span className="detail-value">{selectedSat.apogee} km</span></div>}
-                  {selectedSat.perigee && <div className="detail-item"><span className="detail-label">Perigee</span><span className="detail-value">{selectedSat.perigee} km</span></div>}
-                  <div className="detail-item"><span className="detail-label">NORAD ID</span><span className="detail-value">{selectedSat.id}</span></div>
+                  <div className="detail-item">
+                    <span className="detail-label">Latitude</span>
+                    <span className="detail-value" style={{ color: '#00ff88' }}>{iss.position.latitude.toFixed(4)}°</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="detail-label">Longitude</span>
+                    <span className="detail-value" style={{ color: '#00ff88' }}>{iss.position.longitude.toFixed(4)}°</span>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* Event list */}
+            <div className="panel-section satellite-list-section">
+              <h3 className="panel-section-title">Active Events ({filteredEvents.length})</h3>
+              <div className="satellite-list">
+                {filteredEvents.slice(0, 60).map(evt => {
+                  const catId = evt.categories?.[0]?.id || ''
+                  const cat   = getCat(catId)
+                  const isSel = selectedEvent?.id === evt.id
+                  return (
+                    <button key={evt.id}
+                      className={`sat-item ${isSel ? 'selected' : ''}`}
+                      onClick={() => setSelectedEvent(evt)}
+                      style={isSel ? { borderColor: `${cat.color}55`, background: `${cat.color}10` } : {}}
+                    >
+                      <span className="sat-icon">{cat.icon}</span>
+                      <div className="sat-info">
+                        <span className="sat-name">{evt.title}</span>
+                        <span className="sat-coords" style={{ color: cat.color }}>{cat.label}</span>
+                      </div>
+                      <div className="sat-dot" style={{ background: cat.color }} />
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Selected event detail */}
+            {selectedEvent && (() => {
+              const cat = getCat(selectedEvent.categories?.[0]?.id)
+              const geo = selectedEvent.geometry?.[0]
+              return (
+                <div className="panel-section selected-detail" style={{ borderColor: `${cat.color}30` }}>
+                  <h3 className="panel-section-title">{cat.icon} Event Detail</h3>
+                  <p style={{ fontSize: '0.82rem', color: '#e2e8f0', fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>
+                    {selectedEvent.title}
+                  </p>
+                  <div className="detail-grid">
+                    {selectedEvent.categories?.map((c, i) => (
+                      <div key={i} className="detail-item">
+                        <span className="detail-label">Category</span>
+                        <span className="detail-value" style={{ color: getCat(c.id).color }}>{getCat(c.id).label}</span>
+                      </div>
+                    ))}
+                    {geo?.coordinates && (
+                      <>
+                        <div className="detail-item">
+                          <span className="detail-label">Latitude</span>
+                          <span className="detail-value">{geo.coordinates[1]?.toFixed(4)}°</span>
+                        </div>
+                        <div className="detail-item">
+                          <span className="detail-label">Longitude</span>
+                          <span className="detail-value">{geo.coordinates[0]?.toFixed(4)}°</span>
+                        </div>
+                      </>
+                    )}
+                    {geo?.date && (
+                      <div className="detail-item">
+                        <span className="detail-label">Date</span>
+                        <span className="detail-value">{new Date(geo.date).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                  </div>
+                  {selectedEvent.sources?.map((s, i) => (
+                    <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'inline-block', fontSize: '0.72rem', color: '#06b6d4', marginTop: 8, textDecoration: 'none' }}>
+                      🔗 Source: {s.id}
+                    </a>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
         )}
 
         {loading && (
           <div className="globe-loading">
             <div className="loading-spinner"></div>
+            <span>Loading NASA EONET events…</span>
           </div>
         )}
       </div>

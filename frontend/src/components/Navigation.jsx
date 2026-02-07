@@ -75,6 +75,16 @@ function Navigation() {
               Data Fusion
             </Link>
             <Link
+              to="/mission-control"
+              className={`px-4 py-2 rounded-lg font-medium transition ${
+                isActive('/mission-control') 
+                  ? 'bg-red-500/20 text-red-400 border border-red-500/50' 
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              🚀 Mission Control
+            </Link>
+            <Link
               to="/globe"
               className={`px-4 py-2 rounded-lg font-medium transition ${
                 isActive('/globe') 
@@ -164,6 +174,16 @@ function Navigation() {
             }`}
           >
             Analysis
+          </Link>
+          <Link
+            to="/mission-control"
+            className={`flex-1 px-3 py-2 rounded text-sm font-medium text-center transition ${
+              isActive('/mission-control') 
+                ? 'bg-red-500/20 text-red-400 border border-red-500/50' 
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            🚀 MC
           </Link>
         </div>
       </div>

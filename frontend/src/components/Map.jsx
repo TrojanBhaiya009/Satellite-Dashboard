@@ -33,6 +33,13 @@ function MapComponent() {
 
       map.current.fitBounds(polygon.getBounds())
     }
+
+    return () => {
+      if (map.current) {
+        map.current.remove()
+        map.current = null
+      }
+    }
   }, [])
 
   return (

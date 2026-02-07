@@ -239,7 +239,7 @@ function generateMockSatellites(groupKey, count) {
 // Fetch ISS specifically (always available)
 export const fetchISS = async () => {
   try {
-    const response = await fetch('http://api.open-notify.org/iss-now.json')
+    const response = await fetch('https://api.open-notify.org/iss-now.json')
     const data = await response.json()
     if (data.message === 'success') {
       return {
