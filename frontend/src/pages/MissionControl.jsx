@@ -152,14 +152,14 @@ function SubsystemStatus({ label, status, value }) {
   )
 }
 
-// ─── Realistic Flat World Map with event pins ───────────────
+// ─── Flat World Map (accurate outlines, reference-image colors) ───
 function EventWorldMap({ events, iss }) {
   const [tooltip, setTooltip] = useState(null)
 
-  // lon/lat → SVG coords (Equirectangular projection, viewBox 0 0 1010 505)
-  const project = (lon, lat) => [((lon + 180) / 360) * 1010, ((90 - lat) / 180) * 505]
+  // Equirectangular: lon/lat → SVG x,y  (viewBox 0 0 1000 500)
+  // x = (lon+180)/360*1000   y = (90-lat)/180*500
+  const proj = (lon, lat) => [((lon + 180) / 360) * 1000, ((90 - lat) / 180) * 500]
 
-  // Category info for pins
   const catInfo = {
     wildfires:    { color: '#ef4444', icon: '🔥', label: 'Fire' },
     severeStorms: { color: '#8b5cf6', icon: '🌀', label: 'Storm' },
@@ -172,12 +172,21 @@ function EventWorldMap({ events, iss }) {
     landslides:   { color: '#a3622a', icon: '⛰️', label: 'Slide' },
   }
 
+  /* ── colour palette matching reference image ── */
+  const NA  = { fill: 'rgba(205,115,115,0.18)', stroke: 'rgba(205,115,115,0.5)' } // pink-red
+  const SA  = { fill: 'rgba(120,170,220,0.18)', stroke: 'rgba(120,170,220,0.5)' } // light blue
+  const EU  = { fill: 'rgba(190,130,155,0.18)', stroke: 'rgba(190,130,155,0.5)' } // mauve-pink
+  const AF  = { fill: 'rgba(220,185,110,0.18)', stroke: 'rgba(220,185,110,0.5)' } // tan-orange
+  const AS  = { fill: 'rgba(170,150,210,0.18)', stroke: 'rgba(170,150,210,0.5)' } // lavender-purple
+  const OC  = { fill: 'rgba(90,190,120,0.18)',  stroke: 'rgba(90,190,120,0.5)'  } // green
+  const AN  = { fill: 'rgba(190,195,205,0.10)', stroke: 'rgba(190,195,205,0.3)' } // light gray
+
   return (
     <div className="mc-worldmap-container">
-      <svg viewBox="0 0 1010 505" className="mc-worldmap-svg" preserveAspectRatio="xMidYMid meet">
+      <svg viewBox="0 0 1000 500" className="mc-worldmap-svg" preserveAspectRatio="xMidYMid meet">
         <defs>
-          <radialGradient id="mcOcean" cx="50%" cy="45%" r="65%">
-            <stop offset="0%" stopColor="#0c1a2e" />
+          <radialGradient id="mcOcean" cx="50%" cy="45%" r="70%">
+            <stop offset="0%" stopColor="#0d1b2e" />
             <stop offset="100%" stopColor="#060a13" />
           </radialGradient>
           <filter id="mcGlow">
@@ -186,89 +195,232 @@ function EventWorldMap({ events, iss }) {
           </filter>
         </defs>
 
-        {/* Ocean background */}
-        <rect width="1010" height="505" fill="url(#mcOcean)" rx="4" />
+        {/* Ocean */}
+        <rect width="1000" height="500" fill="url(#mcOcean)" rx="4" />
 
-        {/* Grid – latitude */}
-        {[-60, -30, 0, 30, 60].map(lat => {
-          const [, y] = project(0, lat)
-          return <line key={`lat${lat}`} x1="0" y1={y} x2="1010" y2={y} stroke="rgba(6,182,212,0.06)" strokeWidth="0.5" />
+        {/* Grid – latitudes */}
+        {[-60,-30,0,30,60].map(lat => {
+          const y = ((90-lat)/180)*500
+          return <line key={`la${lat}`} x1="0" y1={y} x2="1000" y2={y} stroke="rgba(6,182,212,0.05)" strokeWidth="0.4" />
         })}
-        {/* Grid – longitude */}
-        {[-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150].map(lon => {
-          const [x] = project(lon, 0)
-          return <line key={`lon${lon}`} x1={x} y1="0" x2={x} y2="505" stroke="rgba(6,182,212,0.06)" strokeWidth="0.5" />
+        {/* Grid – longitudes */}
+        {[-150,-120,-90,-60,-30,0,30,60,90,120,150].map(lon => {
+          const x = ((lon+180)/360)*1000
+          return <line key={`lo${lon}`} x1={x} y1="0" x2={x} y2="500" stroke="rgba(6,182,212,0.05)" strokeWidth="0.4" />
         })}
-        {/* Equator highlight */}
-        <line x1="0" y1={252.5} x2="1010" y2={252.5} stroke="rgba(6,182,212,0.1)" strokeWidth="0.6" strokeDasharray="8 4" />
+        {/* Equator */}
+        <line x1="0" y1="250" x2="1000" y2="250" stroke="rgba(6,182,212,0.08)" strokeWidth="0.5" strokeDasharray="6 3" />
 
-        {/* ═══ CONTINENT PATHS ═══ */}
-
-        {/* North America */}
-        <path d="M135,48 L140,42 148,38 160,35 175,33 190,36 205,32 218,28 230,25 240,28 248,35 252,42 250,52 258,55 268,52 278,56 288,48 296,50 298,58 290,65 284,72 278,78 275,86 280,94 285,100 290,108 286,116 278,122 272,130 268,138 266,146 260,154 255,160 248,168 242,174 236,180 228,186 220,192 212,196 205,202 198,208 188,216 178,220 168,225 158,230 150,236 145,240 140,244 L136,238 130,230 122,225 114,218 106,210 98,200 90,190 82,178 76,168 70,158 65,148 60,138 56,126 54,116 53,105 56,95 62,86 70,78 80,72 92,66 105,60 118,54 Z" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* Central America */}
-        <path d="M140,244 L148,246 155,250 160,256 165,260 170,258 175,254 178,248 182,252 180,260 175,266 170,270 165,268 158,270 152,266 148,262 142,258 138,254 136,248 Z" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* ═══════ NORTH AMERICA (pink-red) ═══════ */}
+        {/* Alaska */}
+        <path d="M 30,58 L 26,67 22,78 28,86 36,94 44,97 56,94 67,92 78,94 86,89 83,83 75,78 67,72 58,67 50,61 42,56 36,53 Z"
+          fill={NA.fill} stroke={NA.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Canada + USA mainland */}
+        <path d="M 92,67 L 100,61 111,56 125,53 139,50 150,50 161,47 172,44 183,42 194,42 206,39 217,36 228,33 239,33 250,36 258,39 264,44 272,42 281,44 289,50 283,53 278,58 272,64 267,72 264,78 261,83 264,89 267,94 272,97 275,103 278,108 281,114 278,119 275,125 272,131 269,136 264,142 258,147 253,153 250,158 244,164 239,169 233,175 228,178 222,181 217,183 211,186 206,189 200,192 194,194 189,197 183,200 178,203 172,206 167,208 161,211 156,214 150,219 144,225 L 139,231 L 147,233 153,236 156,239 158,244 156,247 150,250 147,253 144,256 139,258 133,261 128,264 119,269
+          L 122,264 125,258 131,256 131,250 122,244 117,242 111,244 106,244
+          L 108,236 114,228 119,222 122,217 125,211 128,206 131,200 133,194
+          L 131,189 128,183 125,178 119,172 114,167 108,164 103,161 97,161
+          L 92,164 89,167 86,172 83,178 78,183 72,186 67,189 61,192
+          L 56,194 50,194 42,192 36,189 31,186 28,181 25,175 22,169
+          L 19,164 17,158 17,153 19,147 22,142 25,136 28,131 33,125
+          L 39,119 44,114 50,108 56,106 61,103 67,100 72,97 78,94
+          L 83,92 86,89 89,83 92,78 92,72 Z"
+          fill={NA.fill} stroke={NA.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Mexico */}
+        <path d="M 128,264 L 133,261 139,258 144,256 147,253 150,250 153,250 156,247
+          L 158,253 161,258 164,261 167,264 169,267 172,269 175,267 178,264
+          L 181,258 183,253 186,247 189,244 192,242 194,244 197,247 200,253
+          L 203,261 206,267 208,272 L 200,275 194,272 189,269 183,269 178,272
+          L 172,272 167,272 161,272 158,275 153,278 147,278 142,275 139,272
+          L 136,269 131,267 Z"
+          fill={NA.fill} stroke={NA.stroke} strokeWidth="0.7" strokeLinejoin="round" />
         {/* Greenland */}
-        <path d="M310,22 L320,18 335,16 348,18 358,24 365,32 368,42 365,52 358,62 348,68 336,72 324,70 314,64 306,56 302,46 304,36 308,28 Z" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 300,22 L 308,17 319,14 331,14 342,17 350,22 356,28 361,36 364,44
+          L 361,53 356,61 350,67 342,72 333,75 325,75 317,72 308,67 303,61
+          L 297,53 294,44 294,36 297,28 Z"
+          fill={NA.fill} stroke={NA.stroke} strokeWidth="0.7" strokeLinejoin="round" />
 
-        {/* South America */}
-        <path d="M218,268 L228,264 240,262 250,266 258,272 264,278 268,286 270,296 268,308 264,320 260,332 254,344 248,354 242,364 236,374 230,382 224,390 218,398 214,406 210,414 206,420 202,428 200,434 198,440 196,444 L192,440 188,432 186,422 188,412 190,402 192,392 194,382 196,370 198,358 200,346 202,336 204,324 206,312 206,302 208,292 210,282 214,274 Z" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* ═══════ SOUTH AMERICA (light blue) ═══════ */}
+        <path d="M 208,272 L 214,269 222,267 231,267 239,269 244,272 250,278
+          L 256,283 261,289 264,297 267,303 269,311 269,319 267,328
+          L 264,336 261,344 258,350 253,358 250,364 244,372 239,378
+          L 233,386 228,392 222,397 219,403 214,408 211,414 208,419
+          L 206,425 203,431 200,436 197,439 194,442 192,444
+          L 189,442 186,436 186,428 186,422 186,414 186,406
+          L 189,397 192,389 194,381 194,372 197,364 200,356
+          L 200,347 200,339 200,331 200,322 203,314 203,306
+          L 206,297 206,289 206,281 Z"
+          fill={SA.fill} stroke={SA.stroke} strokeWidth="0.7" strokeLinejoin="round" />
 
-        {/* Europe */}
-        <path d="M475,40 L482,36 490,38 496,44 502,48 508,44 514,38 522,35 530,38 536,44 542,52 548,58 554,66 558,74 555,82 550,88 546,96 548,104 544,112 538,118 530,124 524,130 518,136 514,142 508,148 504,154 498,158 492,162 486,158 480,150 476,142 472,134 468,126 464,118 462,110 460,102 462,94 465,86 468,78 470,68 472,58 474,48 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* British Isles */}
-        <path d="M448,78 L454,72 460,74 464,80 462,88 456,94 450,96 446,90 444,84 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        <path d="M440,88 L446,86 448,92 444,96 440,94 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* Scandinavia */}
-        <path d="M502,22 L510,18 520,20 528,26 534,34 530,38 522,35 514,38 508,44 502,48 496,44 494,36 498,28 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* ═══════ EUROPE (mauve-pink) ═══════ */}
+        {/* Mainland */}
+        <path d="M 472,56 L 478,50 483,47 489,44 494,42 500,44 503,47 506,50
+          L 511,47 517,44 522,42 528,42 533,44 536,47 539,50 542,53
+          L 544,58 547,64 550,69 553,75 556,81 553,86 550,92
+          L 547,97 544,103 547,108 544,114 539,117 533,122
+          L 528,125 522,128 517,131 514,136 511,139 506,144
+          L 503,147 500,150 497,153 494,156 492,158 489,158
+          L 483,156 478,150 475,147 472,142 469,136 467,131
+          L 464,125 461,119 458,114 456,108 456,103 458,97
+          L 458,92 461,86 464,81 467,75 469,69 472,64 Z"
+          fill={EU.fill} stroke={EU.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Scandinavia + Finland */}
+        <path d="M 500,17 L 506,14 514,14 519,17 525,22 528,28 531,33 533,39
+          L 533,44 528,42 522,42 517,44 511,47 506,50 503,47
+          L 500,44 497,39 494,33 494,28 497,22 Z"
+          fill={EU.fill} stroke={EU.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Great Britain */}
+        <path d="M 450,75 L 456,72 461,72 464,75 464,81 461,86 458,89
+          L 453,92 450,89 447,86 447,81 Z"
+          fill={EU.fill} stroke={EU.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Ireland */}
+        <path d="M 442,81 L 447,78 450,81 450,86 447,89 442,89 440,86 Z"
+          fill={EU.fill} stroke={EU.stroke} strokeWidth="0.7" strokeLinejoin="round" />
         {/* Iceland */}
-        <path d="M418,48 L426,44 434,46 438,52 434,58 426,60 420,56 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 417,47 L 422,44 428,44 433,47 436,50 433,56 428,58 422,58 419,53 Z"
+          fill={EU.fill} stroke={EU.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Italy */}
+        <path d="M 503,147 L 508,150 511,156 514,161 514,167 511,172
+          L 506,172 503,167 500,161 500,156 Z"
+          fill={EU.fill} stroke={EU.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Iberian Peninsula */}
+        <path d="M 458,139 L 464,136 469,136 475,139 478,144 478,150
+          L 475,156 472,161 467,164 461,164 456,161 453,156
+          L 453,150 456,144 Z"
+          fill={EU.fill} stroke={EU.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Greece */}
+        <path d="M 522,153 L 528,150 533,153 533,158 531,164 528,167
+          L 522,167 519,161 519,156 Z"
+          fill={EU.fill} stroke={EU.stroke} strokeWidth="0.7" strokeLinejoin="round" />
 
-        {/* Africa */}
-        <path d="M462,170 L472,166 484,164 496,168 508,172 518,178 528,186 536,196 542,208 546,222 548,236 550,250 548,264 544,278 538,292 532,304 524,316 516,326 508,336 500,344 494,352 490,360 486,366 482,370 L476,366 470,358 466,348 462,336 458,324 454,312 450,300 448,288 446,276 446,264 446,252 448,240 450,228 452,216 452,204 450,192 448,182 452,174 Z" fill="rgba(245,158,11,0.1)" stroke="rgba(245,158,11,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* ═══════ AFRICA (tan-orange) ═══════ */}
+        <path d="M 461,172 L 467,169 472,167 478,167 483,167 489,169
+          L 497,169 503,172 511,175 519,178 528,183 533,189
+          L 539,194 542,200 544,206 547,214 550,222 550,231
+          L 553,239 553,247 553,256 553,264 550,272 547,281
+          L 544,289 542,297 539,303 536,311 533,317 528,325
+          L 525,331 522,336 519,342 517,347 514,353 511,358
+          L 508,364 503,369 500,372 497,375 494,378 492,381
+          L 489,381 486,378 483,372 478,364 475,356 472,347
+          L 469,339 467,331 464,322 461,314 458,306 456,297
+          L 453,289 450,281 450,272 450,264 450,256 450,247
+          L 450,239 450,231 453,222 453,214 453,206 453,197
+          L 453,189 453,181 456,175 Z"
+          fill={AF.fill} stroke={AF.stroke} strokeWidth="0.7" strokeLinejoin="round" />
         {/* Madagascar */}
-        <path d="M562,316 L568,310 574,314 578,324 576,336 572,346 566,352 560,346 558,336 560,326 Z" fill="rgba(245,158,11,0.1)" stroke="rgba(245,158,11,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 558,319 L 564,314 569,317 572,325 572,333 569,342
+          L 564,347 558,344 556,336 556,328 Z"
+          fill={AF.fill} stroke={AF.stroke} strokeWidth="0.7" strokeLinejoin="round" />
 
-        {/* Asia */}
-        <path d="M558,74 L568,66 580,58 594,52 610,48 628,45 648,44 668,46 688,50 708,48 726,44 744,42 760,44 776,48 790,54 802,48 814,44 828,42 842,46 854,52 864,60 874,70 882,80 886,92 884,104 878,114 870,122 862,130 854,138 846,146 838,152 828,158 818,164 808,170 796,176 784,182 774,188 764,194 754,200 744,206 734,210 722,214 710,212 698,206 686,198 676,192 666,188 656,186 646,190 636,196 626,204 618,212 612,220 608,228 604,236 598,240 590,238 582,232 576,224 570,216 564,206 558,196 552,186 546,178 540,170 534,164 528,158 520,152 518,148 524,140 532,132 540,122 546,112 548,104 546,96 550,88 555,82 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* Japan */}
-        <path d="M884,104 L892,96 898,102 900,112 898,124 894,134 888,142 882,146 878,140 876,130 880,118 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* ═══════ ASIA (lavender-purple) ═══════ */}
+        {/* Main body */}
+        <path d="M 556,81 L 561,75 567,69 575,64 583,58 594,53 606,50
+          L 617,47 628,44 639,42 650,42 661,44 672,47 683,50
+          L 694,50 706,47 717,44 728,42 739,42 750,44 761,47
+          L 769,50 778,53 786,56 794,53 800,50 808,47 817,44
+          L 825,42 833,42 842,44 850,50 856,56 864,61 869,67
+          L 875,75 881,83 886,92 889,100 889,108 886,117
+          L 881,122 875,128 869,133 864,139 858,144 853,150
+          L 847,156 842,161 836,164 831,169 825,172 819,175
+          L 811,178 803,181 797,183 792,186 786,189 781,192
+          L 775,194 769,197 764,200 758,203 750,206 744,208
+          L 739,211 731,214 722,217 714,214 706,211 697,206
+          L 689,200 683,194 675,192 667,189 658,186
+          L 650,186 642,189 633,194 628,200 622,206
+          L 617,211 611,217 606,222 603,228 600,233
+          L 597,239 594,242 589,239 583,233 578,228
+          L 572,222 567,214 564,208 558,200 553,192
+          L 547,183 542,175 536,169 531,164 525,158
+          L 522,153 525,147 528,142 533,136 536,131
+          L 539,125 542,119 544,114 547,108 544,103
+          L 547,97 550,92 553,86 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Arabian Peninsula */}
+        <path d="M 556,181 L 564,178 572,175 581,178 589,183 594,189
+          L 600,197 606,206 608,214 606,222 603,228
+          L 597,231 592,228 586,222 581,217 575,211
+          L 569,206 564,200 558,194 556,189 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.7" strokeLinejoin="round" />
         {/* India */}
-        <path d="M656,186 L666,188 676,192 686,198 694,208 698,220 696,234 692,248 686,260 680,270 674,276 668,270 664,258 660,246 656,234 652,222 650,210 648,198 650,190 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 658,186 L 667,189 675,192 683,197 692,206 697,217
+          L 697,228 694,239 689,250 683,261 678,269 672,275
+          L 667,269 664,258 658,247 656,236 653,225 650,214
+          L 647,203 647,194 650,189 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.7" strokeLinejoin="round" />
         {/* Sri Lanka */}
-        <path d="M676,282 L682,278 686,284 684,292 678,296 674,290 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* SE Asia peninsula */}
-        <path d="M744,206 L752,212 758,220 760,232 756,242 750,250 744,258 740,266 736,258 734,248 736,238 738,228 740,218 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* Indonesia */}
-        <path d="M752,264 L762,258 774,260 786,262 798,266 808,270 818,268 826,264 834,268 838,276 832,282 822,284 812,282 800,278 790,276 778,274 766,272 756,270 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* Philippines */}
-        <path d="M826,208 L832,202 838,206 840,216 836,226 830,232 824,226 822,216 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* Taiwan */}
-        <path d="M836,182 L842,178 846,184 844,192 838,194 834,188 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 675,281 L 681,278 683,283 681,289 678,292 672,289 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.6" strokeLinejoin="round" />
+        {/* Indochina peninsula */}
+        <path d="M 744,208 L 750,214 756,222 758,231 756,242 750,250
+          L 744,258 739,264 736,258 733,247 733,239 736,228 739,219 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.7" strokeLinejoin="round" />
         {/* Korean Peninsula */}
-        <path d="M856,110 L862,104 868,108 870,118 866,128 860,134 854,128 854,118 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* Middle East / Arabian Peninsula */}
-        <path d="M556,186 L566,180 578,178 588,182 598,190 604,200 606,212 604,222 598,224 590,220 582,216 574,210 566,204 560,196 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 858,108 L 864,103 869,108 869,117 867,125 861,131
+          L 856,128 853,119 856,114 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.6" strokeLinejoin="round" />
+        {/* Japan */}
+        <path d="M 883,97 L 889,92 894,97 897,106 897,117 894,128
+          L 889,136 886,142 881,144 878,139 878,128 881,117 881,106 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.7" strokeLinejoin="round" />
+        {/* Taiwan */}
+        <path d="M 839,181 L 844,178 847,183 844,189 839,189 836,186 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.6" strokeLinejoin="round" />
+        {/* Philippines */}
+        <path d="M 828,206 L 833,200 839,206 839,214 836,222 831,228
+          L 825,225 825,217 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.6" strokeLinejoin="round" />
+        {/* Indonesia – Sumatra,Java,Borneo chain */}
+        <path d="M 750,264 L 758,258 769,258 778,261 786,264 794,267
+          L 803,269 811,267 819,264 828,264 836,269 839,275
+          L 833,281 825,281 814,281 803,278 794,275 786,275
+          L 775,272 764,272 756,269 Z"
+          fill={AS.fill} stroke={AS.stroke} strokeWidth="0.6" strokeLinejoin="round" />
 
+        {/* ═══════ OCEANIA (green) ═══════ */}
         {/* Australia */}
-        <path d="M812,318 L826,310 842,304 860,300 878,302 894,310 904,322 910,336 914,352 910,366 904,378 894,388 882,396 868,400 854,398 840,392 828,384 818,374 810,362 804,348 802,334 806,324 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 808,314 L 819,306 831,300 844,297 856,294 869,297
+          L 881,303 889,311 897,322 903,333 906,344 906,356
+          L 903,367 897,378 889,386 881,392 872,397 861,400
+          L 850,400 839,394 828,386 819,378 811,367 806,356
+          L 803,344 803,333 Z"
+          fill={OC.fill} stroke={OC.stroke} strokeWidth="0.7" strokeLinejoin="round" />
         {/* Tasmania */}
-        <path d="M884,406 L892,402 898,408 896,416 890,420 884,414 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        {/* New Zealand */}
-        <path d="M942,370 L948,364 954,370 956,380 952,392 946,400 940,396 938,386 940,378 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
-        <path d="M946,402 L952,398 956,404 954,412 948,416 944,410 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 883,406 L 889,403 894,406 894,414 889,417 883,414 Z"
+          fill={OC.fill} stroke={OC.stroke} strokeWidth="0.6" strokeLinejoin="round" />
         {/* Papua New Guinea */}
-        <path d="M870,272 L880,268 892,270 900,276 904,284 900,292 892,296 882,294 874,288 870,280 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M 867,272 L 878,267 889,269 897,275 900,283 897,289
+          L 889,292 881,292 875,286 869,281 Z"
+          fill={OC.fill} stroke={OC.stroke} strokeWidth="0.6" strokeLinejoin="round" />
+        {/* New Zealand North */}
+        <path d="M 939,367 L 944,361 950,367 950,378 947,386 942,392
+          L 936,389 936,381 Z"
+          fill={OC.fill} stroke={OC.stroke} strokeWidth="0.6" strokeLinejoin="round" />
+        {/* New Zealand South */}
+        <path d="M 942,394 L 947,392 950,397 950,406 947,411 942,411
+          L 939,406 939,400 Z"
+          fill={OC.fill} stroke={OC.stroke} strokeWidth="0.6" strokeLinejoin="round" />
 
-        {/* Antarctica */}
-        <path d="M30,480 L80,472 140,466 220,462 320,458 420,456 505,455 590,456 690,458 790,462 870,466 930,472 980,480 990,495 990,505 20,505 20,495 Z" fill="rgba(148,163,184,0.08)" stroke="rgba(148,163,184,0.2)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* ═══════ ANTARCTICA (gray) ═══════ */}
+        <path d="M 20,478 L 60,472 120,467 200,464 300,461 400,458
+          L 500,456 600,458 700,461 800,464 880,467 940,472
+          L 980,478 985,492 985,500 15,500 15,492 Z"
+          fill={AN.fill} stroke={AN.stroke} strokeWidth="0.7" strokeLinejoin="round" />
 
-        {/* ═══ EVENT PIN MARKERS ═══ */}
+        {/* ═══════ CONTINENT LABELS ═══════ */}
+        <text x="145" y="142" fill="rgba(205,115,115,0.45)" fontSize="10" fontWeight="600" fontFamily="sans-serif" textAnchor="middle">North America</text>
+        <text x="225" y="347" fill="rgba(120,170,220,0.5)" fontSize="10" fontWeight="600" fontFamily="sans-serif" textAnchor="middle">South America</text>
+        <text x="503" y="106" fill="rgba(190,130,155,0.5)" fontSize="9" fontWeight="600" fontFamily="sans-serif" textAnchor="middle">Europe</text>
+        <text x="500" y="278" fill="rgba(220,185,110,0.5)" fontSize="10" fontWeight="600" fontFamily="sans-serif" textAnchor="middle">Africa</text>
+        <text x="740" y="117" fill="rgba(170,150,210,0.45)" fontSize="11" fontWeight="600" fontFamily="sans-serif" textAnchor="middle">Asia</text>
+        <text x="860" y="358" fill="rgba(90,190,120,0.55)" fontSize="9" fontWeight="600" fontFamily="sans-serif" textAnchor="middle">Oceania</text>
+        <text x="500" y="490" fill="rgba(190,195,205,0.35)" fontSize="9" fontWeight="600" fontFamily="sans-serif" textAnchor="middle">Antarctica</text>
+
+        {/* ═══════ EVENT PIN MARKERS ═══════ */}
         {events.map((evt, i) => {
           const geo = evt.geometry?.[0] || evt.geometry
           if (!geo?.coordinates) return null
           const coords = Array.isArray(geo.coordinates[0]) ? geo.coordinates[0] : geo.coordinates
-          const [x, y] = project(coords[0], coords[1])
+          const [x, y] = proj(coords[0], coords[1])
           const catId = evt.categories?.[0]?.id || ''
           const info = catInfo[catId] || { color: '#f59e0b', icon: '📡', label: 'Event' }
 
@@ -278,44 +430,36 @@ function EventWorldMap({ events, iss }) {
               onMouseLeave={() => setTooltip(null)}
               style={{ cursor: 'pointer' }}
             >
-              {/* Pulse ring */}
               <circle cx={x} cy={y} r="6" fill={info.color} opacity="0.15" className="mc-map-pulse" />
-              {/* Pin shadow */}
-              <circle cx={x} cy={y + 1} r="3" fill="rgba(0,0,0,0.4)" />
-              {/* Pin glow */}
-              <circle cx={x} cy={y} r="4" fill={info.color} opacity="0.3" />
-              {/* Pin dot */}
-              <circle cx={x} cy={y} r="2.5" fill={info.color} stroke="rgba(255,255,255,0.5)" strokeWidth="0.5" />
-              {/* Icon */}
-              <text x={x} y={y - 7} textAnchor="middle" fontSize="7" dominantBaseline="auto">{info.icon}</text>
+              <circle cx={x} cy={y + 1} r="3" fill="rgba(0,0,0,0.35)" />
+              <circle cx={x} cy={y} r="3.5" fill={info.color} opacity="0.25" />
+              <circle cx={x} cy={y} r="2" fill={info.color} stroke="rgba(255,255,255,0.6)" strokeWidth="0.5" />
+              <text x={x} y={y - 6} textAnchor="middle" fontSize="6.5" dominantBaseline="auto">{info.icon}</text>
             </g>
           )
         })}
 
-        {/* ISS marker */}
+        {/* ISS live position */}
         {iss && (() => {
-          const [ix, iy] = project(iss.position.longitude, iss.position.latitude)
+          const [ix, iy] = proj(iss.position.longitude, iss.position.latitude)
           return (
             <g filter="url(#mcGlow)">
-              <circle cx={ix} cy={iy} r="8" fill="rgba(16,185,129,0.15)" className="mc-map-pulse" />
-              <circle cx={ix} cy={iy} r="4" fill="#10b981" opacity="0.5" />
+              <circle cx={ix} cy={iy} r="8" fill="rgba(16,185,129,0.12)" className="mc-map-pulse" />
+              <circle cx={ix} cy={iy} r="3.5" fill="#10b981" opacity="0.4" />
               <circle cx={ix} cy={iy} r="2" fill="#10b981" stroke="#fff" strokeWidth="0.6" />
-              <text x={ix} y={iy - 10} textAnchor="middle" fontSize="7">🛰️</text>
-              <text x={ix + 12} y={iy + 3} fill="#10b981" fontSize="6" fontFamily="monospace" fontWeight="bold">ISS</text>
+              <text x={ix} y={iy - 9} textAnchor="middle" fontSize="7">🛰️</text>
+              <text x={ix + 11} y={iy + 3} fill="#10b981" fontSize="5.5" fontFamily="monospace" fontWeight="bold">ISS</text>
             </g>
           )
         })()}
 
-        {/* Tooltip */}
+        {/* Hover tooltip */}
         {tooltip && (
           <g>
-            <rect
-              x={tooltip.x - 60} y={tooltip.y - 34}
-              width="120" height="22" rx="4"
-              fill="rgba(15,23,42,0.92)" stroke="rgba(6,182,212,0.3)" strokeWidth="0.5"
-            />
-            <text x={tooltip.x} y={tooltip.y - 20} textAnchor="middle" fill="#e2e8f0" fontSize="6" fontFamily="monospace">
-              {tooltip.icon} {tooltip.title?.slice(0, 28)}{tooltip.title?.length > 28 ? '…' : ''}
+            <rect x={Math.max(5, Math.min(tooltip.x - 65, 870))} y={tooltip.y - 32} width="130" height="20" rx="4"
+              fill="rgba(15,23,42,0.92)" stroke="rgba(6,182,212,0.25)" strokeWidth="0.5" />
+            <text x={Math.max(70, Math.min(tooltip.x, 935))} y={tooltip.y - 19} textAnchor="middle" fill="#e2e8f0" fontSize="5.5" fontFamily="monospace">
+              {tooltip.icon} {tooltip.title?.slice(0, 30)}{tooltip.title?.length > 30 ? '…' : ''}
             </text>
           </g>
         )}
