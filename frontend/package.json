@@ -14,7 +14,6 @@
     "@react-three/fiber": "^8.15.12",
     "@supabase/supabase-js": "^2.89.0",
     "axios": "^1.6.2",
-    "cesium": "^1.138.0",
     "chart.js": "^4.4.1",
     "clsx": "^2.0.0",
     "date-fns": "^2.30.0",
@@ -27,7 +26,6 @@
     "react-router-dom": "^6.17.0",
     "socket.io-client": "^4.5.4",
     "three": "^0.158.0",
-    "vite-plugin-cesium": "^1.2.23",
     "zustand": "^4.4.5"
   },
   "devDependencies": {
