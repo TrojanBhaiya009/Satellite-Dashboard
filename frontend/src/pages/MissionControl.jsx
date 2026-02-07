@@ -152,54 +152,173 @@ function SubsystemStatus({ label, status, value }) {
   )
 }
 
-// ─── Mini World Map with events ─────────────────────────────
-function EventWorldMap({ events }) {
+// ─── Realistic Flat World Map with event pins ───────────────
+function EventWorldMap({ events, iss }) {
+  const [tooltip, setTooltip] = useState(null)
+
+  // lon/lat → SVG coords (Equirectangular projection, viewBox 0 0 1010 505)
+  const project = (lon, lat) => [((lon + 180) / 360) * 1010, ((90 - lat) / 180) * 505]
+
+  // Category info for pins
+  const catInfo = {
+    wildfires:    { color: '#ef4444', icon: '🔥', label: 'Fire' },
+    severeStorms: { color: '#8b5cf6', icon: '🌀', label: 'Storm' },
+    volcanoes:    { color: '#f97316', icon: '🌋', label: 'Volcano' },
+    floods:       { color: '#3b82f6', icon: '🌊', label: 'Flood' },
+    earthquakes:  { color: '#eab308', icon: '⚡', label: 'Quake' },
+    seaLakeIce:   { color: '#06b6d4', icon: '❄️', label: 'Ice' },
+    snow:         { color: '#e2e8f0', icon: '🌨️', label: 'Snow' },
+    drought:      { color: '#d97706', icon: '☀️', label: 'Drought' },
+    landslides:   { color: '#a3622a', icon: '⛰️', label: 'Slide' },
+  }
+
   return (
     <div className="mc-worldmap-container">
-      <svg viewBox="-180 -90 360 180" className="mc-worldmap-svg" preserveAspectRatio="xMidYMid meet">
-        {/* Grid lines */}
-        {[-60, -30, 0, 30, 60].map(lat => (
-          <line key={`lat${lat}`} x1="-180" y1={-lat} x2="180" y2={-lat} stroke="rgba(6,182,212,0.08)" strokeWidth="0.5" />
-        ))}
-        {[-120, -60, 0, 60, 120].map(lon => (
-          <line key={`lon${lon}`} x1={lon} y1="-90" x2={lon} y2="90" stroke="rgba(6,182,212,0.08)" strokeWidth="0.5" />
-        ))}
-        {/* Simplified continent outlines */}
-        {/* North America */}
-        <polygon points="-130,-10 -60,-10 -60,10 -80,30 -55,50 -75,72 -170,72 -170,50 -130,30" fill="rgba(6,182,212,0.08)" stroke="rgba(6,182,212,0.2)" strokeWidth="0.5" />
-        {/* South America */}
-        <polygon points="-80,-55 -35,-10 -35,5 -50,10 -80,10 -80,-10 -70,-30" fill="rgba(6,182,212,0.08)" stroke="rgba(6,182,212,0.2)" strokeWidth="0.5" />
-        {/* Europe */}
-        <polygon points="-10,35 40,35 45,50 35,60 50,72 -10,72 -10,50" fill="rgba(6,182,212,0.08)" stroke="rgba(6,182,212,0.2)" strokeWidth="0.5" />
-        {/* Africa */}
-        <polygon points="-18,35 52,35 50,0 30,-35 15,-35 5,-5 -18,5" fill="rgba(6,182,212,0.08)" stroke="rgba(6,182,212,0.2)" strokeWidth="0.5" />
-        {/* Asia */}
-        <polygon points="40,35 45,50 55,55 70,45 80,30 100,35 130,45 145,55 180,72 50,72 35,60" fill="rgba(6,182,212,0.08)" stroke="rgba(6,182,212,0.2)" strokeWidth="0.5" />
-        {/* Australia */}
-        <polygon points="115,-10 150,-10 155,-25 145,-40 115,-35 112,-25" fill="rgba(6,182,212,0.08)" stroke="rgba(6,182,212,0.2)" strokeWidth="0.5" />
+      <svg viewBox="0 0 1010 505" className="mc-worldmap-svg" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <radialGradient id="mcOcean" cx="50%" cy="45%" r="65%">
+            <stop offset="0%" stopColor="#0c1a2e" />
+            <stop offset="100%" stopColor="#060a13" />
+          </radialGradient>
+          <filter id="mcGlow">
+            <feGaussianBlur stdDeviation="2" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
 
-        {/* Event markers */}
+        {/* Ocean background */}
+        <rect width="1010" height="505" fill="url(#mcOcean)" rx="4" />
+
+        {/* Grid – latitude */}
+        {[-60, -30, 0, 30, 60].map(lat => {
+          const [, y] = project(0, lat)
+          return <line key={`lat${lat}`} x1="0" y1={y} x2="1010" y2={y} stroke="rgba(6,182,212,0.06)" strokeWidth="0.5" />
+        })}
+        {/* Grid – longitude */}
+        {[-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150].map(lon => {
+          const [x] = project(lon, 0)
+          return <line key={`lon${lon}`} x1={x} y1="0" x2={x} y2="505" stroke="rgba(6,182,212,0.06)" strokeWidth="0.5" />
+        })}
+        {/* Equator highlight */}
+        <line x1="0" y1={252.5} x2="1010" y2={252.5} stroke="rgba(6,182,212,0.1)" strokeWidth="0.6" strokeDasharray="8 4" />
+
+        {/* ═══ CONTINENT PATHS ═══ */}
+
+        {/* North America */}
+        <path d="M135,48 L140,42 148,38 160,35 175,33 190,36 205,32 218,28 230,25 240,28 248,35 252,42 250,52 258,55 268,52 278,56 288,48 296,50 298,58 290,65 284,72 278,78 275,86 280,94 285,100 290,108 286,116 278,122 272,130 268,138 266,146 260,154 255,160 248,168 242,174 236,180 228,186 220,192 212,196 205,202 198,208 188,216 178,220 168,225 158,230 150,236 145,240 140,244 L136,238 130,230 122,225 114,218 106,210 98,200 90,190 82,178 76,168 70,158 65,148 60,138 56,126 54,116 53,105 56,95 62,86 70,78 80,72 92,66 105,60 118,54 Z" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Central America */}
+        <path d="M140,244 L148,246 155,250 160,256 165,260 170,258 175,254 178,248 182,252 180,260 175,266 170,270 165,268 158,270 152,266 148,262 142,258 138,254 136,248 Z" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Greenland */}
+        <path d="M310,22 L320,18 335,16 348,18 358,24 365,32 368,42 365,52 358,62 348,68 336,72 324,70 314,64 306,56 302,46 304,36 308,28 Z" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+
+        {/* South America */}
+        <path d="M218,268 L228,264 240,262 250,266 258,272 264,278 268,286 270,296 268,308 264,320 260,332 254,344 248,354 242,364 236,374 230,382 224,390 218,398 214,406 210,414 206,420 202,428 200,434 198,440 196,444 L192,440 188,432 186,422 188,412 190,402 192,392 194,382 196,370 198,358 200,346 202,336 204,324 206,312 206,302 208,292 210,282 214,274 Z" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+
+        {/* Europe */}
+        <path d="M475,40 L482,36 490,38 496,44 502,48 508,44 514,38 522,35 530,38 536,44 542,52 548,58 554,66 558,74 555,82 550,88 546,96 548,104 544,112 538,118 530,124 524,130 518,136 514,142 508,148 504,154 498,158 492,162 486,158 480,150 476,142 472,134 468,126 464,118 462,110 460,102 462,94 465,86 468,78 470,68 472,58 474,48 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* British Isles */}
+        <path d="M448,78 L454,72 460,74 464,80 462,88 456,94 450,96 446,90 444,84 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M440,88 L446,86 448,92 444,96 440,94 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Scandinavia */}
+        <path d="M502,22 L510,18 520,20 528,26 534,34 530,38 522,35 514,38 508,44 502,48 496,44 494,36 498,28 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Iceland */}
+        <path d="M418,48 L426,44 434,46 438,52 434,58 426,60 420,56 Z" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+
+        {/* Africa */}
+        <path d="M462,170 L472,166 484,164 496,168 508,172 518,178 528,186 536,196 542,208 546,222 548,236 550,250 548,264 544,278 538,292 532,304 524,316 516,326 508,336 500,344 494,352 490,360 486,366 482,370 L476,366 470,358 466,348 462,336 458,324 454,312 450,300 448,288 446,276 446,264 446,252 448,240 450,228 452,216 452,204 450,192 448,182 452,174 Z" fill="rgba(245,158,11,0.1)" stroke="rgba(245,158,11,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Madagascar */}
+        <path d="M562,316 L568,310 574,314 578,324 576,336 572,346 566,352 560,346 558,336 560,326 Z" fill="rgba(245,158,11,0.1)" stroke="rgba(245,158,11,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+
+        {/* Asia */}
+        <path d="M558,74 L568,66 580,58 594,52 610,48 628,45 648,44 668,46 688,50 708,48 726,44 744,42 760,44 776,48 790,54 802,48 814,44 828,42 842,46 854,52 864,60 874,70 882,80 886,92 884,104 878,114 870,122 862,130 854,138 846,146 838,152 828,158 818,164 808,170 796,176 784,182 774,188 764,194 754,200 744,206 734,210 722,214 710,212 698,206 686,198 676,192 666,188 656,186 646,190 636,196 626,204 618,212 612,220 608,228 604,236 598,240 590,238 582,232 576,224 570,216 564,206 558,196 552,186 546,178 540,170 534,164 528,158 520,152 518,148 524,140 532,132 540,122 546,112 548,104 546,96 550,88 555,82 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Japan */}
+        <path d="M884,104 L892,96 898,102 900,112 898,124 894,134 888,142 882,146 878,140 876,130 880,118 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* India */}
+        <path d="M656,186 L666,188 676,192 686,198 694,208 698,220 696,234 692,248 686,260 680,270 674,276 668,270 664,258 660,246 656,234 652,222 650,210 648,198 650,190 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Sri Lanka */}
+        <path d="M676,282 L682,278 686,284 684,292 678,296 674,290 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* SE Asia peninsula */}
+        <path d="M744,206 L752,212 758,220 760,232 756,242 750,250 744,258 740,266 736,258 734,248 736,238 738,228 740,218 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Indonesia */}
+        <path d="M752,264 L762,258 774,260 786,262 798,266 808,270 818,268 826,264 834,268 838,276 832,282 822,284 812,282 800,278 790,276 778,274 766,272 756,270 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Philippines */}
+        <path d="M826,208 L832,202 838,206 840,216 836,226 830,232 824,226 822,216 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Taiwan */}
+        <path d="M836,182 L842,178 846,184 844,192 838,194 834,188 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Korean Peninsula */}
+        <path d="M856,110 L862,104 868,108 870,118 866,128 860,134 854,128 854,118 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Middle East / Arabian Peninsula */}
+        <path d="M556,186 L566,180 578,178 588,182 598,190 604,200 606,212 604,222 598,224 590,220 582,216 574,210 566,204 560,196 Z" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+
+        {/* Australia */}
+        <path d="M812,318 L826,310 842,304 860,300 878,302 894,310 904,322 910,336 914,352 910,366 904,378 894,388 882,396 868,400 854,398 840,392 828,384 818,374 810,362 804,348 802,334 806,324 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Tasmania */}
+        <path d="M884,406 L892,402 898,408 896,416 890,420 884,414 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* New Zealand */}
+        <path d="M942,370 L948,364 954,370 956,380 952,392 946,400 940,396 938,386 940,378 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        <path d="M946,402 L952,398 956,404 954,412 948,416 944,410 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+        {/* Papua New Guinea */}
+        <path d="M870,272 L880,268 892,270 900,276 904,284 900,292 892,296 882,294 874,288 870,280 Z" fill="rgba(234,179,8,0.1)" stroke="rgba(234,179,8,0.35)" strokeWidth="0.8" strokeLinejoin="round" />
+
+        {/* Antarctica */}
+        <path d="M30,480 L80,472 140,466 220,462 320,458 420,456 505,455 590,456 690,458 790,462 870,466 930,472 980,480 990,495 990,505 20,505 20,495 Z" fill="rgba(148,163,184,0.08)" stroke="rgba(148,163,184,0.2)" strokeWidth="0.8" strokeLinejoin="round" />
+
+        {/* ═══ EVENT PIN MARKERS ═══ */}
         {events.map((evt, i) => {
           const geo = evt.geometry?.[0] || evt.geometry
           if (!geo?.coordinates) return null
           const coords = Array.isArray(geo.coordinates[0]) ? geo.coordinates[0] : geo.coordinates
-          const lon = coords[0]
-          const lat = -coords[1] // SVG y is inverted
-
+          const [x, y] = project(coords[0], coords[1])
           const catId = evt.categories?.[0]?.id || ''
-          const colorMap = {
-            wildfires: '#ef4444', severeStorms: '#8b5cf6', volcanoes: '#f97316',
-            floods: '#3b82f6', seaLakeIce: '#06b6d4', snow: '#e2e8f0',
-          }
-          const color = colorMap[catId] || '#f59e0b'
+          const info = catInfo[catId] || { color: '#f59e0b', icon: '📡', label: 'Event' }
 
           return (
-            <g key={i}>
-              <circle cx={lon} cy={lat} r="3" fill={color} opacity="0.3" className="mc-map-pulse" />
-              <circle cx={lon} cy={lat} r="1.5" fill={color} opacity="0.9" />
+            <g key={i}
+              onMouseEnter={() => setTooltip({ x, y, title: evt.title, cat: info.label, icon: info.icon })}
+              onMouseLeave={() => setTooltip(null)}
+              style={{ cursor: 'pointer' }}
+            >
+              {/* Pulse ring */}
+              <circle cx={x} cy={y} r="6" fill={info.color} opacity="0.15" className="mc-map-pulse" />
+              {/* Pin shadow */}
+              <circle cx={x} cy={y + 1} r="3" fill="rgba(0,0,0,0.4)" />
+              {/* Pin glow */}
+              <circle cx={x} cy={y} r="4" fill={info.color} opacity="0.3" />
+              {/* Pin dot */}
+              <circle cx={x} cy={y} r="2.5" fill={info.color} stroke="rgba(255,255,255,0.5)" strokeWidth="0.5" />
+              {/* Icon */}
+              <text x={x} y={y - 7} textAnchor="middle" fontSize="7" dominantBaseline="auto">{info.icon}</text>
             </g>
           )
         })}
+
+        {/* ISS marker */}
+        {iss && (() => {
+          const [ix, iy] = project(iss.position.longitude, iss.position.latitude)
+          return (
+            <g filter="url(#mcGlow)">
+              <circle cx={ix} cy={iy} r="8" fill="rgba(16,185,129,0.15)" className="mc-map-pulse" />
+              <circle cx={ix} cy={iy} r="4" fill="#10b981" opacity="0.5" />
+              <circle cx={ix} cy={iy} r="2" fill="#10b981" stroke="#fff" strokeWidth="0.6" />
+              <text x={ix} y={iy - 10} textAnchor="middle" fontSize="7">🛰️</text>
+              <text x={ix + 12} y={iy + 3} fill="#10b981" fontSize="6" fontFamily="monospace" fontWeight="bold">ISS</text>
+            </g>
+          )
+        })()}
+
+        {/* Tooltip */}
+        {tooltip && (
+          <g>
+            <rect
+              x={tooltip.x - 60} y={tooltip.y - 34}
+              width="120" height="22" rx="4"
+              fill="rgba(15,23,42,0.92)" stroke="rgba(6,182,212,0.3)" strokeWidth="0.5"
+            />
+            <text x={tooltip.x} y={tooltip.y - 20} textAnchor="middle" fill="#e2e8f0" fontSize="6" fontFamily="monospace">
+              {tooltip.icon} {tooltip.title?.slice(0, 28)}{tooltip.title?.length > 28 ? '…' : ''}
+            </text>
+          </g>
+        )}
       </svg>
     </div>
   )
@@ -400,7 +519,7 @@ function MissionControl() {
               <h2 className="mc-card-title">🌍 GLOBAL EVENT MONITOR</h2>
               <span className="mc-map-count">{events.length} active events</span>
             </div>
-            <EventWorldMap events={events} />
+            <EventWorldMap events={events} iss={iss} />
           </section>
 
           {/* Telemetry Row */}
