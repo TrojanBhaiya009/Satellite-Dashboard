@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react'
 import { useDatasetStore } from '../store'
 import { mockDatasets } from '../services/mockData'
 import { 
@@ -88,6 +88,86 @@ const generateOrbitPath = (satellite, pointCount = 50) => {
   return points
 }
 
+// Memoized satellite image viewer - isolated from parent re-renders
+// Only re-renders when imageUrl, region, or date actually change
+const SatelliteImageViewer = memo(function SatelliteImageViewer({ imageUrl, region, date }) {
+  const [imgStatus, setImgStatus] = useState('loading') // 'loading' | 'loaded' | 'error'
+  const prevUrlRef = useRef(imageUrl)
+
+  // Reset status only when URL actually changes
+  useEffect(() => {
+    if (prevUrlRef.current !== imageUrl) {
+      prevUrlRef.current = imageUrl
+      setImgStatus('loading')
+    }
+  }, [imageUrl])
+
+  if (!imageUrl) {
+    return (
+      <div className="relative aspect-video bg-slate-900/50 rounded-xl overflow-hidden border border-slate-600">
+        <div className="absolute inset-0 flex items-center justify-center text-slate-500">
+          <div className="text-center">
+            <p className="text-4xl mb-2">\ud83d\udef0\ufe0f</p>
+            <p>Select a dataset to view imagery</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative aspect-video bg-slate-900/50 rounded-xl overflow-hidden border border-slate-600">
+      {/* Loading placeholder */}
+      {imgStatus === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center text-slate-500 z-10">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+            <p>Loading satellite imagery...</p>
+            <p className="text-xs mt-1 text-slate-600">Fetching from NASA GIBS</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {imgStatus === 'error' && (
+        <div className="absolute inset-0 flex items-center justify-center text-slate-500 z-10">
+          <div className="text-center">
+            <p className="text-4xl mb-2">\ud83c\udf0d</p>
+            <p>Imagery unavailable</p>
+            <p className="text-xs mt-1">Data may not be available for this date</p>
+          </div>
+        </div>
+      )}
+
+      {/* Actual image - always in DOM, visibility controlled by opacity */}
+      <img
+        src={imageUrl}
+        alt="Live satellite imagery"
+        className={`w-full h-full object-cover transition-opacity duration-300 ${
+          imgStatus === 'loaded' ? 'opacity-100' : 'opacity-0'
+        }`}
+        onLoad={() => setImgStatus('loaded')}
+        onError={() => setImgStatus('error')}
+      />
+
+      {/* Info overlay */}
+      {imgStatus === 'loaded' && (
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900/80 to-transparent p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-slate-300">
+              <span className="font-semibold">{region}</span> \u2022 {date}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              <span className="text-xs text-green-400">LIVE DATA</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+})
+
 function Datasets() {
   const datasets = useDatasetStore(state => state.datasets)
   const setDatasets = useDatasetStore(state => state.setDatasets)
@@ -120,6 +200,24 @@ function Datasets() {
   }, [datasets, selectedId])
 
   const selected = datasets.find(d => d._id === selectedId)
+
+  // Memoize the bbox from selected dataset to avoid recalculation
+  const selectedBbox = useMemo(() => {
+    const coords = selected?.coordinates?.coordinates?.[0] || []
+    if (coords.length === 0) return null
+    return [
+      Math.min(...coords.map(c => c[0])),
+      Math.min(...coords.map(c => c[1])),
+      Math.max(...coords.map(c => c[0])),
+      Math.max(...coords.map(c => c[1]))
+    ]
+  }, [selected])
+
+  // Memoize the GIBS image URL so it only changes when product/date/dataset change
+  const gibsImageUrl = useMemo(() => {
+    if (!selectedBbox) return null
+    return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${selectedGibsProduct}&FORMAT=image/jpeg&TRANSPARENT=true&HEIGHT=512&WIDTH=1024&CRS=EPSG:4326&BBOX=${selectedBbox[1]},${selectedBbox[0]},${selectedBbox[3]},${selectedBbox[2]}&TIME=${liveImageryDate}`
+  }, [selectedGibsProduct, liveImageryDate, selectedBbox])
 
   // Fetch real-time satellite scenes when a dataset is selected
   useEffect(() => {
@@ -250,21 +348,11 @@ function Datasets() {
     }
   }, [selected, autoRefresh])
 
-  // Get NASA GIBS imagery URL for live view
-  const getGibsImageUrl = useCallback((product, date, region) => {
-    // NASA GIBS WMS URL for specific region
-    const coords = selected?.coordinates?.coordinates?.[0] || []
-    if (coords.length === 0) return null
-    
-    const bbox = [
-      Math.min(...coords.map(c => c[0])),
-      Math.min(...coords.map(c => c[1])),
-      Math.max(...coords.map(c => c[0])),
-      Math.max(...coords.map(c => c[1]))
-    ]
-    
-    return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${product}&FORMAT=image/jpeg&TRANSPARENT=true&HEIGHT=256&WIDTH=512&CRS=EPSG:4326&BBOX=${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]}&TIME=${date}`
-  }, [selected])
+  // getGibsImageUrl kept for compatibility but now uses memoized bbox
+  const getGibsImageUrl = useCallback((product, date) => {
+    if (!selectedBbox) return null
+    return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${product}&FORMAT=image/jpeg&TRANSPARENT=true&HEIGHT=512&WIDTH=1024&CRS=EPSG:4326&BBOX=${selectedBbox[1]},${selectedBbox[0]},${selectedBbox[3]},${selectedBbox[2]}&TIME=${date}`
+  }, [selectedBbox])
 
   const handleDownload = (source, sourceIdx) => {
     setDownloadStatus(prev => ({ ...prev, [sourceIdx]: 'loading' }))
@@ -729,51 +817,11 @@ function Datasets() {
                     </div>
                   </div>
                   
-                  <div className="relative aspect-video bg-slate-900/50 rounded-xl overflow-hidden border border-slate-600">
-                    {getGibsImageUrl(selectedGibsProduct, liveImageryDate) ? (
-                      <>
-                        <img
-                          key={`${selectedGibsProduct}-${liveImageryDate}-${Date.now()}`}
-                          src={getGibsImageUrl(selectedGibsProduct, liveImageryDate)}
-                          alt="Live satellite imagery"
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.target.style.display = 'none'
-                            e.target.nextSibling.style.display = 'flex'
-                          }}
-                          onLoad={(e) => {
-                            e.target.style.display = 'block'
-                            if (e.target.nextSibling) e.target.nextSibling.style.display = 'none'
-                          }}
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center text-slate-500" style={{ display: 'none' }}>
-                          <div className="text-center">
-                            <p className="text-4xl mb-2">🌍</p>
-                            <p>Loading imagery...</p>
-                            <p className="text-xs mt-1">Data may not be available for this date</p>
-                          </div>
-                        </div>
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900/80 to-transparent p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-slate-300">
-                              <span className="font-semibold">{selected.region}</span> • {liveImageryDate}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                              <span className="text-xs text-green-400">LIVE DATA</span>
-                            </div>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center text-slate-500">
-                        <div className="text-center">
-                          <p className="text-4xl mb-2">🛰️</p>
-                          <p>Select a dataset to view imagery</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <SatelliteImageViewer
+                    imageUrl={gibsImageUrl}
+                    region={selected.region}
+                    date={liveImageryDate}
+                  />
                   
                   <div className="mt-4 grid grid-cols-4 gap-2">
                     {['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04'].map((date, idx) => {
