@@ -252,9 +252,9 @@ function Datasets() {
         
         let scenes = []
         if (selected.satellite === 'Sentinel-2' && bbox) {
-          scenes = await fetchSentinel2Data(bbox, startDate, endDate, 20)
+          scenes = await fetchSentinel2Data(bbox, startDate, endDate, 100)
         } else if (selected.satellite === 'Landsat-9' && bbox) {
-          scenes = await fetchLandsatData(bbox, startDate, endDate, 20)
+          scenes = await fetchLandsatData(bbox, startDate, endDate, 100)
         } else if (bbox) {
           scenes = await searchSTACItems(
             STAC_ENDPOINTS.earthSearch,

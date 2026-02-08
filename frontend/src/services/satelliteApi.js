@@ -161,7 +161,7 @@ export const calculateSpectralIndices = (bands) => {
 }
 
 // Fetch real Sentinel-2 data info from AWS Earth Search
-export const fetchSentinel2Data = async (bbox, startDate, endDate, cloudCover = 20) => {
+export const fetchSentinel2Data = async (bbox, startDate, endDate, cloudCover = 100) => {
   try {
     // Ensure dates are in RFC3339 format
     const startDt = startDate.includes('T') ? startDate : `${startDate}T00:00:00Z`
@@ -190,7 +190,7 @@ export const fetchSentinel2Data = async (bbox, startDate, endDate, cloudCover = 
 }
 
 // Fetch Landsat data from AWS Earth Search  
-export const fetchLandsatData = async (bbox, startDate, endDate, cloudCover = 20) => {
+export const fetchLandsatData = async (bbox, startDate, endDate, cloudCover = 100) => {
   try {
     // Ensure dates are in RFC3339 format
     const startDt = startDate.includes('T') ? startDate : `${startDate}T00:00:00Z`
