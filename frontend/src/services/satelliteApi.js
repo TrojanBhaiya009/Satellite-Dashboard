@@ -93,11 +93,18 @@ export const fetchSTACCollections = async (endpoint = STAC_ENDPOINTS.earthSearch
 // Search STAC items (actual satellite scenes)
 export const searchSTACItems = async (endpoint, collectionId, bbox, datetime, limit = 10) => {
   try {
+    // Ensure datetime is RFC3339 format if it contains a date range
+    let formattedDatetime = datetime
+    if (datetime && !datetime.includes('T')) {
+      const parts = datetime.split('/')
+      formattedDatetime = parts.map(d => d.includes('T') ? d : `${d}T00:00:00Z`).join('/')
+    }
+    
     const searchBody = {
       collections: [collectionId],
       limit,
       ...(bbox && { bbox }),
-      ...(datetime && { datetime })
+      ...(formattedDatetime && { datetime: formattedDatetime })
     }
     
     const response = await fetch(`${endpoint}/search`, {
@@ -156,18 +163,22 @@ export const calculateSpectralIndices = (bands) => {
 // Fetch real Sentinel-2 data info from AWS Earth Search
 export const fetchSentinel2Data = async (bbox, startDate, endDate, cloudCover = 20) => {
   try {
+    // Ensure dates are in RFC3339 format
+    const startDt = startDate.includes('T') ? startDate : `${startDate}T00:00:00Z`
+    const endDt = endDate.includes('T') ? endDate : `${endDate}T23:59:59Z`
+    
     const response = await fetch('https://earth-search.aws.element84.com/v1/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         collections: ['sentinel-2-l2a'],
         bbox,
-        datetime: `${startDate}/${endDate}`,
+        datetime: `${startDt}/${endDt}`,
         query: {
           'eo:cloud_cover': { lt: cloudCover }
         },
         limit: 10,
-        sortby: [{ field: 'datetime', direction: 'desc' }]
+        sortby: [{ field: 'properties.datetime', direction: 'desc' }]
       })
     })
     const data = await response.json()
@@ -181,18 +192,22 @@ export const fetchSentinel2Data = async (bbox, startDate, endDate, cloudCover = 
 // Fetch Landsat data from AWS Earth Search  
 export const fetchLandsatData = async (bbox, startDate, endDate, cloudCover = 20) => {
   try {
+    // Ensure dates are in RFC3339 format
+    const startDt = startDate.includes('T') ? startDate : `${startDate}T00:00:00Z`
+    const endDt = endDate.includes('T') ? endDate : `${endDate}T23:59:59Z`
+    
     const response = await fetch('https://earth-search.aws.element84.com/v1/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         collections: ['landsat-c2-l2'],
         bbox,
-        datetime: `${startDate}/${endDate}`,
+        datetime: `${startDt}/${endDt}`,
         query: {
           'eo:cloud_cover': { lt: cloudCover }
         },
         limit: 10,
-        sortby: [{ field: 'datetime', direction: 'desc' }]
+        sortby: [{ field: 'properties.datetime', direction: 'desc' }]
       })
     })
     const data = await response.json()
