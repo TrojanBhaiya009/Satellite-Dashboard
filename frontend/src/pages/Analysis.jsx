@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef, Suspense, Component } from 'react'
+import React, { useState, useCallback, useEffect, useRef, useMemo, memo, Suspense, Component } from 'react'
 import { Canvas, useFrame, useLoader } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -33,7 +33,7 @@ class Earth3DErrorBoundary extends Component {
 }
 
 // Realistic Earth Globe with day/night cycle
-function SimpleEarth({ targetCoords }) {
+const SimpleEarth = memo(function SimpleEarth({ targetCoords }) {
   const earthRef = useRef()
   const nightRef = useRef()
   const cloudsRef = useRef()
@@ -67,24 +67,19 @@ function SimpleEarth({ targetCoords }) {
     'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_specular_2048.jpg'
   )
   
-  // Calculate sun position based on real time
-  const getSunPosition = () => {
+  // Calculate sun position based on real time - memoized to avoid recalculating every render
+  const sunPos = useMemo(() => {
     const now = new Date()
     const hours = now.getUTCHours() + now.getUTCMinutes() / 60
-    // Sun position: 12:00 UTC = sun at 0° longitude
-    // Earth rotates 15° per hour
     const sunLongitude = (12 - hours) * 15
     const sunLongitudeRad = (sunLongitude * Math.PI) / 180
-    // Simplified: sun roughly at equator (ignoring seasons)
     const declination = 0
     return {
       x: Math.cos(declination) * Math.cos(sunLongitudeRad) * 10,
       y: Math.sin(declination) * 10,
       z: Math.cos(declination) * Math.sin(sunLongitudeRad) * 10
     }
-  }
-  
-  const sunPos = getSunPosition()
+  }, [])
   
   useFrame((state, delta) => {
     if (earthRef.current) {
@@ -108,18 +103,21 @@ function SimpleEarth({ targetCoords }) {
   })
   
   // Convert lat/lon to 3D position on sphere
-  const latLonToVector3 = (lat, lon, radius) => {
+  const latLonToVector3 = useCallback((lat, lon, radius) => {
     const phi = (90 - lat) * (Math.PI / 180)
     const theta = (lon + 180) * (Math.PI / 180)
     const x = -(radius * Math.sin(phi) * Math.cos(theta))
     const z = radius * Math.sin(phi) * Math.sin(theta)
     const y = radius * Math.cos(phi)
     return [x, y, z]
-  }
+  }, [])
   
-  const markerPosition = targetCoords 
-    ? latLonToVector3(targetCoords[1], targetCoords[0], 1.02)
-    : [0, 1.02, 0]
+  const markerPosition = useMemo(() => 
+    targetCoords 
+      ? latLonToVector3(targetCoords[1], targetCoords[0], 1.02)
+      : [0, 1.02, 0],
+    [targetCoords, latLonToVector3]
+  )
 
   return (
     <group>
@@ -142,6 +140,7 @@ function SimpleEarth({ targetCoords }) {
           transparent
           opacity={0.8}
           blending={THREE.AdditiveBlending}
+          depthWrite={false}
         />
       </mesh>
       
@@ -169,31 +168,7 @@ function SimpleEarth({ targetCoords }) {
       </mesh>
       
       {/* Atmosphere rim effect */}
-      <mesh>
-        <sphereGeometry args={[1.05, 64, 64]} />
-        <shaderMaterial
-          transparent
-          side={THREE.BackSide}
-          uniforms={{
-            glowColor: { value: new THREE.Color(0x4fc3f7) }
-          }}
-          vertexShader={`
-            varying vec3 vNormal;
-            void main() {
-              vNormal = normalize(normalMatrix * normal);
-              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-          `}
-          fragmentShader={`
-            varying vec3 vNormal;
-            uniform vec3 glowColor;
-            void main() {
-              float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
-              gl_FragColor = vec4(glowColor, intensity * 0.4);
-            }
-          `}
-        />
-      </mesh>
+      <AtmosphereGlow />
       
       {/* Target marker with glow effect */}
       {targetCoords && (
@@ -230,6 +205,41 @@ function SimpleEarth({ targetCoords }) {
       {/* Animated satellite */}
       <SatelliteOrbit />
     </group>
+  )
+})
+
+// Memoized atmosphere glow to prevent shader material recreation
+const atmosphereUniforms = {
+  glowColor: { value: new THREE.Color(0x4fc3f7) }
+}
+const atmosphereVertexShader = `
+  varying vec3 vNormal;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
+const atmosphereFragmentShader = `
+  varying vec3 vNormal;
+  uniform vec3 glowColor;
+  void main() {
+    float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+    gl_FragColor = vec4(glowColor, intensity * 0.4);
+  }
+`
+
+function AtmosphereGlow() {
+  return (
+    <mesh>
+      <sphereGeometry args={[1.05, 64, 64]} />
+      <shaderMaterial
+        transparent
+        side={THREE.BackSide}
+        uniforms={atmosphereUniforms}
+        vertexShader={atmosphereVertexShader}
+        fragmentShader={atmosphereFragmentShader}
+      />
+    </mesh>
   )
 }
 
@@ -279,6 +289,26 @@ function SatelliteOrbit() {
   )
 }
 
+// Memoized mini globe panel to isolate from parent re-renders (data stream, etc.)
+const MiniGlobePanel = memo(function MiniGlobePanel({ center, name }) {
+  return (
+    <div className="lg:col-span-1 bg-gradient-to-br from-slate-900 to-indigo-950/50 border border-indigo-500/30 rounded-2xl p-4 overflow-hidden">
+      <h3 className="text-sm font-bold text-indigo-300 mb-3 flex items-center gap-2">
+        🌍 Target Region
+      </h3>
+      <div className="relative aspect-square max-h-48 mx-auto">
+        <Earth3D targetCoords={center} />
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-transparent p-3">
+          <p className="text-xs text-cyan-400 font-bold">{name}</p>
+          <p className="text-[10px] text-slate-400">
+            {center[1].toFixed(2)}°, {center[0].toFixed(2)}°
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+})
+
 // SVG Fallback Globe
 function SVGFallbackGlobe({ targetCoords, regionName }) {
   return (
@@ -309,9 +339,18 @@ function SVGFallbackGlobe({ targetCoords, regionName }) {
   )
 }
 
-// 3D Scene wrapper with error boundary and fallback
-function Earth3D({ targetCoords, regionName }) {
+// Stable camera config to prevent Canvas recreation
+const CAMERA_CONFIG = { position: [0, 0, 2.5], fov: 50 }
+const CANVAS_STYLE = { background: 'transparent' }
+const GL_CONFIG = { alpha: true, antialias: true }
+
+// 3D Scene wrapper with error boundary and fallback - memoized to prevent re-renders
+const Earth3D = memo(function Earth3D({ targetCoords, regionName }) {
   const [hasError, setHasError] = useState(false)
+  const handleCreated = useCallback(({ gl }) => {
+    gl.setClearColor(0x000000, 0)
+  }, [])
+  const handleError = useCallback(() => setHasError(true), [])
   
   if (hasError) {
     return <SVGFallbackGlobe targetCoords={targetCoords} regionName={regionName} />
@@ -320,13 +359,12 @@ function Earth3D({ targetCoords, regionName }) {
   return (
     <Earth3DErrorBoundary fallback={<SVGFallbackGlobe targetCoords={targetCoords} regionName={regionName} />}>
       <Canvas
-        camera={{ position: [0, 0, 2.5], fov: 50 }}
-        style={{ background: 'transparent' }}
-        gl={{ alpha: true, antialias: true }}
-        onCreated={({ gl }) => {
-          gl.setClearColor(0x000000, 0)
-        }}
-        onError={() => setHasError(true)}
+        camera={CAMERA_CONFIG}
+        style={CANVAS_STYLE}
+        gl={GL_CONFIG}
+        onCreated={handleCreated}
+        onError={handleError}
+        frameloop="demand"
       >
         {/* Good ambient light so we can see everything */}
         <ambientLight intensity={0.6} color="#ffffff" />
@@ -364,9 +402,19 @@ function Earth3D({ targetCoords, regionName }) {
           autoRotate={false}
           rotateSpeed={0.5}
         />
+        {/* Keep the R3F render loop alive for animations */}
+        <FrameLoopController />
       </Canvas>
     </Earth3DErrorBoundary>
   )
+})
+
+// Forces continuous rendering inside the Canvas without causing React re-renders
+function FrameLoopController() {
+  useFrame(({ invalidate }) => {
+    invalidate()
+  })
+  return null
 }
 
 // Satellite regions with real coordinates for API calls
@@ -554,7 +602,7 @@ function Analysis() {
   const [aiInsights, setAiInsights] = useState([])
   const dataStreamRef = useRef(null)
 
-  // Simulated data stream during processing
+  // Simulated data stream during processing - throttled to reduce re-renders
   useEffect(() => {
     if (isLoading) {
       const streamInterval = setInterval(() => {
@@ -566,7 +614,7 @@ function Analysis() {
           status: 'received'
         }
         setDataStream(prev => [...prev.slice(-15), newPacket])
-      }, 200)
+      }, 600)
       
       return () => clearInterval(streamInterval)
     }
@@ -847,24 +895,8 @@ function Analysis() {
         {/* Mini Globe + Data Stream Panel (shown when region selected) */}
         {selectedRegion && (
           <div className="mb-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Mini Globe Visualization */}
-            <div className="lg:col-span-1 bg-gradient-to-br from-slate-900 to-indigo-950/50 border border-indigo-500/30 rounded-2xl p-4 overflow-hidden">
-              <h3 className="text-sm font-bold text-indigo-300 mb-3 flex items-center gap-2">
-                🌍 Target Region
-              </h3>
-              <div className="relative aspect-square max-h-48 mx-auto">
-                {/* 3D Earth Globe */}
-                <Earth3D targetCoords={selectedRegion.center} />
-                
-                {/* Region info overlay */}
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-transparent p-3">
-                  <p className="text-xs text-cyan-400 font-bold">{selectedRegion.name}</p>
-                  <p className="text-[10px] text-slate-400">
-                    {selectedRegion.center[1].toFixed(2)}°, {selectedRegion.center[0].toFixed(2)}°
-                  </p>
-                </div>
-              </div>
-            </div>
+            {/* Mini Globe Visualization - isolated from data stream re-renders */}
+            <MiniGlobePanel center={selectedRegion.center} name={selectedRegion.name} />
 
             {/* Live Data Stream */}
             <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-800/50 border border-slate-700 rounded-2xl p-4 overflow-hidden">
