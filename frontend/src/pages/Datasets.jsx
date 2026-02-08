@@ -183,10 +183,10 @@ function Datasets() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshInterval, setRefreshInterval] = useState(1000)
   const [lastUpdate, setLastUpdate] = useState(null)
-  // Default to 3 days ago since NASA GIBS has 1-3 day data latency
+  // Default to 1 day ago since NASA GIBS typically has ~1 day data latency
   const [liveImageryDate, setLiveImageryDate] = useState(() => {
     const d = new Date()
-    d.setDate(d.getDate() - 3)
+    d.setDate(d.getDate() - 1)
     return d.toISOString().split('T')[0]
   })
   const [selectedGibsProduct, setSelectedGibsProduct] = useState('MODIS_Terra_CorrectedReflectance_TrueColor')
@@ -829,7 +829,7 @@ function Datasets() {
                   />
                   
                   <div className="mt-4 grid grid-cols-4 gap-2">
-                    {[3, 4, 5, 6].map((daysAgo, idx) => {
+                    {[1, 2, 3, 4].map((daysAgo, idx) => {
                       const d = new Date()
                       d.setDate(d.getDate() - daysAgo)
                       const dateStr = d.toISOString().split('T')[0]
