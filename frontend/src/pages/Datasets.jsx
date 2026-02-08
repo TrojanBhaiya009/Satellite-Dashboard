@@ -92,12 +92,10 @@ const generateOrbitPath = (satellite, pointCount = 50) => {
 // Only re-renders when imageUrl, region, or date actually change
 const SatelliteImageViewer = memo(function SatelliteImageViewer({ imageUrl, region, date }) {
   const [imgStatus, setImgStatus] = useState('loading') // 'loading' | 'loaded' | 'error'
-  const prevUrlRef = useRef(imageUrl)
 
-  // Reset status only when URL actually changes
+  // Reset loading state whenever the URL changes
   useEffect(() => {
-    if (prevUrlRef.current !== imageUrl) {
-      prevUrlRef.current = imageUrl
+    if (imageUrl) {
       setImgStatus('loading')
     }
   }, [imageUrl])
@@ -107,7 +105,7 @@ const SatelliteImageViewer = memo(function SatelliteImageViewer({ imageUrl, regi
       <div className="relative aspect-video bg-slate-900/50 rounded-xl overflow-hidden border border-slate-600">
         <div className="absolute inset-0 flex items-center justify-center text-slate-500">
           <div className="text-center">
-            <p className="text-4xl mb-2">\ud83d\udef0\ufe0f</p>
+            <p className="text-4xl mb-2">🛰️</p>
             <p>Select a dataset to view imagery</p>
           </div>
         </div>
@@ -132,17 +130,19 @@ const SatelliteImageViewer = memo(function SatelliteImageViewer({ imageUrl, regi
       {imgStatus === 'error' && (
         <div className="absolute inset-0 flex items-center justify-center text-slate-500 z-10">
           <div className="text-center">
-            <p className="text-4xl mb-2">\ud83c\udf0d</p>
-            <p>Imagery unavailable</p>
-            <p className="text-xs mt-1">Data may not be available for this date</p>
+            <p className="text-4xl mb-2">🌍</p>
+            <p>Imagery unavailable for this date</p>
+            <p className="text-xs mt-1">Try selecting an earlier date — NASA GIBS has 1-3 day data latency</p>
           </div>
         </div>
       )}
 
-      {/* Actual image - always in DOM, visibility controlled by opacity */}
+      {/* Actual image */}
       <img
+        key={imageUrl}
         src={imageUrl}
         alt="Live satellite imagery"
+        crossOrigin="anonymous"
         className={`w-full h-full object-cover transition-opacity duration-300 ${
           imgStatus === 'loaded' ? 'opacity-100' : 'opacity-0'
         }`}
@@ -155,7 +155,7 @@ const SatelliteImageViewer = memo(function SatelliteImageViewer({ imageUrl, regi
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900/80 to-transparent p-4">
           <div className="flex items-center justify-between">
             <div className="text-xs text-slate-300">
-              <span className="font-semibold">{region}</span> \u2022 {date}
+              <span className="font-semibold">{region}</span> • {date}
             </div>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
@@ -183,7 +183,12 @@ function Datasets() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshInterval, setRefreshInterval] = useState(1000)
   const [lastUpdate, setLastUpdate] = useState(null)
-  const [liveImageryDate, setLiveImageryDate] = useState(new Date().toISOString().split('T')[0])
+  // Default to 3 days ago since NASA GIBS has 1-3 day data latency
+  const [liveImageryDate, setLiveImageryDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 3)
+    return d.toISOString().split('T')[0]
+  })
   const [selectedGibsProduct, setSelectedGibsProduct] = useState('MODIS_Terra_CorrectedReflectance_TrueColor')
   
   const positionUpdateRef = useRef(null)
@@ -824,9 +829,9 @@ function Datasets() {
                   />
                   
                   <div className="mt-4 grid grid-cols-4 gap-2">
-                    {['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04'].map((date, idx) => {
+                    {[3, 4, 5, 6].map((daysAgo, idx) => {
                       const d = new Date()
-                      d.setDate(d.getDate() - idx - 1)
+                      d.setDate(d.getDate() - daysAgo)
                       const dateStr = d.toISOString().split('T')[0]
                       return (
                         <button
